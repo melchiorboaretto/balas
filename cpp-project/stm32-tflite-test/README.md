@@ -108,3 +108,9 @@ On this machine the ST-LINK VCP appeared as `/dev/ttyACM0`. Flashing requires
 the ST-LINK udev rules so `STM32_Programmer_CLI` can open the raw USB device.
 After those rules were installed and reloaded, `BALAS_TARGET=stm32 ./deploy.sh`
 programmed and verified the firmware successfully.
+
+`stm32-tflite-test.ioc` is a CubeMX reference file for the board-level setup
+used by this CMake firmware: `NUCLEO-H723ZG`/`STM32H723ZGTx`, HSE bypass,
+520 MHz PLL, 260 MHz HCLK, USART3 PD8/PD9 for the ST-LINK VCP, and PB0 as a
+status LED. The checked-in CMake/HAL sources remain the source of truth for the
+build.

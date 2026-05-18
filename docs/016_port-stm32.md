@@ -587,14 +587,23 @@ Correcao aplicada:
 - O backend TFLM anterior continua selecionavel para diagnostico com
   `BALAS_STM32_MODEL_BACKEND=tflm`, mas nao e o caminho recomendado enquanto a
   biblioteca TFLM vier do projeto NXP.
+- `cpp-project/stm32-tflite-test/stm32-tflite-test.ioc` registra a configuracao
+  CubeMX de referencia para `NUCLEO-H723ZG`/`STM32H723ZGTx`: HSE em bypass,
+  PLL a 520 MHz, HCLK a 260 MHz, USART3 em PD8/PD9 para VCP 115200 8N1 e PB0
+  como LED de status. O firmware CMake continua sendo a fonte de verdade do
+  port.
+- Validacao minima antes do benchmark nesta placa: `BALAS_TARGET=stm32
+  BALAS_STM32_ENABLE_MODEL=ON ./compile.sh` compilou, `BALAS_TARGET=stm32
+  ./deploy.sh` gravou e verificou o firmware, e `sample_001.bin` enviado pela
+  `/dev/ttyACM0` retornou `23404 us`.
 
 ## Checklist de alteracoes no repositorio
 
 - [x] Criar novo projeto STM32, preferencialmente `cpp-project/stm32-tflite-test`.
-- [ ] Gerar `.ioc` para `NUCLEO-H723ZG` ou `STM32H723ZGTx`.
+- [x] Gerar `.ioc` para `NUCLEO-H723ZG` ou `STM32H723ZGTx`.
 - [x] Configurar clock do STM32H723ZG no CubeMX/CubeIDE.
 - [x] Configurar UART conectada ao Virtual COM Port do ST-LINK em 115200 8N1.
-- [ ] Configurar mecanismo de medicao de tempo.
+- [x] Configurar mecanismo de medicao de tempo.
 - [x] Substituir startup/linker/device headers NXP por STM32.
 - [x] Remover dependencia de `fsl_common.h` em `model.cpp`.
 - [x] Trocar `__ALIGNED(16)` por macro portavel ou macro CMSIS compativel.
