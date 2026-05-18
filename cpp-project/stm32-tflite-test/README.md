@@ -54,6 +54,9 @@ Current validation status: the ST Edge AI backend builds for Cortex-M7, links
 against `NetworkRuntime1020_CM7_GCC.a`, flashes on the `NUCLEO-H723ZG`, receives
 the full 12288-byte float32 input tensor, runs inference, and returns the
 elapsed time. One serial sanity run with `sample_001.bin` returned `23748 us`.
+The full `automator.py` flow also passes with `BALAS_TARGET=stm32` and
+`BALAS_STM32_ENABLE_MODEL=ON`; a 10-sample sanity run reported `23388.5 us`
+average and `5.20 us` standard deviation.
 
 The earlier TFLM backend built, flashed, constructed `MyModel`, and received the
 full 12288-byte input tensor, but then blocked inside `interpreter.Invoke()`

@@ -573,6 +573,10 @@ Correcao aplicada:
 - Validacao na placa com `BALAS_STM32_MODEL_BOOT_MARKER=ON`:
   boot `IIII...MMMM...`, tamanho de entrada `12288`, resposta serial
   `RQGDV + int32 + W`, com `sample_001.bin` retornando `23748 us`.
+- Validacao do fluxo completo:
+  `BALAS_TARGET=stm32 BALAS_STM32_ENABLE_MODEL=ON .venv/bin/python automator.py ...`
+  compilou, gravou, enviou 10 amostras pela serial e gerou
+  `avg_inference_us = 23388.5`, `std_inference_us = 5.200961449578338`.
 - O backend TFLM anterior continua selecionavel para diagnostico com
   `BALAS_STM32_MODEL_BACKEND=tflm`, mas nao e o caminho recomendado enquanto a
   biblioteca TFLM vier do projeto NXP.
@@ -592,7 +596,7 @@ Correcao aplicada:
 - [x] Reimplementar `timer.cpp` para STM32 HAL/LL ou DWT.
 - [x] Atualizar `compile.sh` para selecionar alvo STM32.
 - [x] Atualizar `deploy.sh` para usar `STM32_Programmer_CLI`.
-- [ ] Validar `automator.py` com `BALAS_SERIAL_PORT=/dev/ttyACM*`.
+- [x] Validar `automator.py` com `BALAS_SERIAL_PORT=/dev/ttyACM*`.
 - [x] Registrar resultado de sanity test inicial na NUCLEO-H723ZG.
 - [ ] Registrar resultados de sanity test comparando FRDM-MCXN947 e NUCLEO-H723ZG.
 
