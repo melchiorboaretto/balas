@@ -17,6 +17,7 @@ external/STM32CubeH7/
 datasets/downloads/
 datasets/cifar-10-batches-py/
 artifacts/phase1_image_classification/generated/
+artifacts/stedgeai-sanity/
 assets/*.zip
 assets/*.crdownload
 cpp-project/stm32-tflite-test/build*/

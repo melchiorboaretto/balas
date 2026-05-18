@@ -562,6 +562,20 @@ Correcao aplicada:
   biblioteca do projeto NXP, compilada para Cortex-M33 (`ARMv8-M.mainline`).
   Para concluir o port funcional, e necessario recompilar TFLM para
   Cortex-M7/STM32H723ZG ou trocar para o fluxo X-CUBE-AI/ST Edge AI.
+- O proximo passo escolhido foi trocar o backend STM32 para ST Edge AI. O
+  `stedgeai generate` gerou a rede a partir de
+  `testdata/sanity-model/model_quant.tflite`, e os arquivos versionados ficam em
+  `cpp-project/stm32-tflite-test/Core/Generated/EdgeAI`.
+- `BALAS_TARGET=stm32 BALAS_STM32_ENABLE_MODEL=ON ./compile.sh` agora usa
+  `BALAS_STM32_MODEL_BACKEND=stedgeai` por padrao, inclui os headers de
+  `$HOME/opt/st/x-cube-ai/10.2.0/stedgeai-linux-10.2.0/Middlewares/ST/AI/Inc`
+  e linka `NetworkRuntime1020_CM7_GCC.a` para `STM32H7`/Cortex-M7.
+- Validacao na placa com `BALAS_STM32_MODEL_BOOT_MARKER=ON`:
+  boot `IIII...MMMM...`, tamanho de entrada `12288`, resposta serial
+  `RQGDV + int32 + W`, com `sample_001.bin` retornando `23748 us`.
+- O backend TFLM anterior continua selecionavel para diagnostico com
+  `BALAS_STM32_MODEL_BACKEND=tflm`, mas nao e o caminho recomendado enquanto a
+  biblioteca TFLM vier do projeto NXP.
 
 ## Checklist de alteracoes no repositorio
 
@@ -573,12 +587,13 @@ Correcao aplicada:
 - [x] Substituir startup/linker/device headers NXP por STM32.
 - [x] Remover dependencia de `fsl_common.h` em `model.cpp`.
 - [x] Trocar `__ALIGNED(16)` por macro portavel ou macro CMSIS compativel.
-- [ ] Recompilar `libtensorflow-microlite.a` para Cortex-M7 ou trocar por fluxo STM32/X-CUBE-AI.
+- [x] Recompilar `libtensorflow-microlite.a` para Cortex-M7 ou trocar por fluxo STM32/X-CUBE-AI.
 - [x] Reimplementar `serial_io.cpp` para STM32 HAL/LL.
 - [x] Reimplementar `timer.cpp` para STM32 HAL/LL ou DWT.
 - [x] Atualizar `compile.sh` para selecionar alvo STM32.
 - [x] Atualizar `deploy.sh` para usar `STM32_Programmer_CLI`.
 - [ ] Validar `automator.py` com `BALAS_SERIAL_PORT=/dev/ttyACM*`.
+- [x] Registrar resultado de sanity test inicial na NUCLEO-H723ZG.
 - [ ] Registrar resultados de sanity test comparando FRDM-MCXN947 e NUCLEO-H723ZG.
 
 ## Riscos tecnicos

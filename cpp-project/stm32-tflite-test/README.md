@@ -14,6 +14,11 @@ The STM32-specific `MyModel` port lives in `Core/Model`. It removes the NXP
 `fsl_common.h` dependency and uses a local GCC alignment macro for the tensor
 arena.
 
+The active model backend for STM32 is ST Edge AI, generated from
+`testdata/sanity-model/model_quant.tflite` into `Core/Generated/EdgeAI`. This
+avoids linking the NXP TensorFlow Lite Micro archive, which is built for a
+different Cortex-M profile.
+
 The NXP/MCUXpresso target remains the default. Build this target with:
 
 ```bash
@@ -26,16 +31,38 @@ To compile the STM32 `MyModel` port into the target build:
 BALAS_TARGET=stm32 BALAS_STM32_ENABLE_MODEL=ON ./compile.sh
 ```
 
+That command uses the default backend:
+
+```text
+BALAS_STM32_MODEL_BACKEND=stedgeai
+```
+
+The ST Edge AI package is expected at:
+
+```text
+$HOME/opt/st/x-cube-ai/10.2.0/stedgeai-linux-10.2.0
+```
+
+Override it with `STEDGEAI_ROOT=/path/to/stedgeai-linux-10.2.0` if needed.
+
 With `BALAS_STM32_ENABLE_MODEL=ON`, the build uses `Core/Src/main_model.cpp`,
 `Core/Platform/serial_io.cpp`, and `Core/Platform/timer.cpp`. This matches the
 NXP protocol: receive one float32 input tensor, run inference, and return one
 little-endian signed `int` with elapsed microseconds.
 
-Current validation status: the firmware builds, flashes, constructs `MyModel`,
-and receives the full 12288-byte input tensor. It then blocks inside
-`interpreter.Invoke()`. The current `libtensorflow-microlite.a` still comes from
-the NXP project and was built for Cortex-M33; the next required step is a
-Cortex-M7 TFLM library.
+Current validation status: the ST Edge AI backend builds for Cortex-M7, links
+against `NetworkRuntime1020_CM7_GCC.a`, flashes on the `NUCLEO-H723ZG`, receives
+the full 12288-byte float32 input tensor, runs inference, and returns the
+elapsed time. One serial sanity run with `sample_001.bin` returned `23748 us`.
+
+The earlier TFLM backend built, flashed, constructed `MyModel`, and received the
+full 12288-byte input tensor, but then blocked inside `interpreter.Invoke()`
+because the linked `libtensorflow-microlite.a` came from the NXP project and was
+built for Cortex-M33. Keep that backend only for comparison:
+
+```bash
+BALAS_TARGET=stm32 BALAS_STM32_ENABLE_MODEL=ON BALAS_STM32_MODEL_BACKEND=tflm ./compile.sh
+```
 
 For local diagnosis, this emits boot/progress bytes without changing normal
 builds:

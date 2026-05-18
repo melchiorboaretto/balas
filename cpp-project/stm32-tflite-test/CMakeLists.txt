@@ -9,7 +9,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CUBE_H7_PATH "${CMAKE_CURRENT_LIST_DIR}/../../external/STM32CubeH7" CACHE PATH "Path to STM32CubeH7 package")
 set(NXP_TFLITE_PROJECT_PATH "${CMAKE_CURRENT_LIST_DIR}/../tflite-test" CACHE PATH "Path to the current NXP TFLite project")
-option(BALAS_STM32_ENABLE_MODEL "Compile the STM32 MyModel port and link TensorFlow Lite Micro" OFF)
+set(STEDGEAI_ROOT "$ENV{HOME}/opt/st/x-cube-ai/10.2.0/stedgeai-linux-10.2.0" CACHE PATH "Path to the ST Edge AI package")
+set(BALAS_STM32_MODEL_BACKEND "stedgeai" CACHE STRING "STM32 inference backend: stedgeai or tflm")
+set_property(CACHE BALAS_STM32_MODEL_BACKEND PROPERTY STRINGS stedgeai tflm)
+option(BALAS_STM32_ENABLE_MODEL "Compile the STM32 MyModel port" OFF)
 option(BALAS_STM32_MODEL_BOOT_MARKER "Emit debug UART bytes while starting the model firmware" OFF)
 
 set(LINKER_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/STM32H723ZGTX_FLASH.ld")
@@ -56,7 +59,6 @@ target_include_directories(${TARGET_NAME} PRIVATE
 
 if(BALAS_STM32_ENABLE_MODEL)
     target_sources(${TARGET_NAME} PRIVATE
-        Core/Model/model.cpp
         Core/Model/quantization.cpp
         Core/Platform/serial_io.cpp
         Core/Platform/timer.cpp
@@ -64,17 +66,41 @@ if(BALAS_STM32_ENABLE_MODEL)
     target_include_directories(${TARGET_NAME} PRIVATE
         Core/Model
         Core/Platform
-        ${NXP_TFLITE_PROJECT_PATH}
-        ${NXP_TFLITE_PROJECT_PATH}/tensorflow/tensorflow_headers
-        ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/flatbuffers/include
-        ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/gemmlowp
-        ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/cmsis
-        ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/cmsis_nn
-        ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/kissfft
     )
-    target_link_libraries(${TARGET_NAME} PRIVATE
-        ${NXP_TFLITE_PROJECT_PATH}/tensorflow/libtensorflow-microlite.a
-    )
+    if(BALAS_STM32_MODEL_BACKEND STREQUAL "stedgeai")
+        target_sources(${TARGET_NAME} PRIVATE
+            Core/Model/model_stedgeai.cpp
+            Core/Generated/EdgeAI/balas_model.c
+            Core/Generated/EdgeAI/balas_model_data.c
+            Core/Generated/EdgeAI/balas_model_data_params.c
+        )
+        target_compile_definitions(${TARGET_NAME} PRIVATE BALAS_STM32_USE_STEDGEAI=1)
+        target_include_directories(${TARGET_NAME} PRIVATE
+            Core/Generated/EdgeAI
+            ${STEDGEAI_ROOT}/Middlewares/ST/AI/Inc
+        )
+        target_link_libraries(${TARGET_NAME} PRIVATE
+            ${STEDGEAI_ROOT}/Middlewares/ST/AI/Lib/GCC/STM32H7/NetworkRuntime1020_CM7_GCC.a
+        )
+    elseif(BALAS_STM32_MODEL_BACKEND STREQUAL "tflm")
+        target_sources(${TARGET_NAME} PRIVATE
+            Core/Model/model.cpp
+        )
+        target_include_directories(${TARGET_NAME} PRIVATE
+            ${NXP_TFLITE_PROJECT_PATH}
+            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/tensorflow_headers
+            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/flatbuffers/include
+            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/gemmlowp
+            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/cmsis
+            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/cmsis_nn
+            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/kissfft
+        )
+        target_link_libraries(${TARGET_NAME} PRIVATE
+            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/libtensorflow-microlite.a
+        )
+    else()
+        message(FATAL_ERROR "Unsupported BALAS_STM32_MODEL_BACKEND=${BALAS_STM32_MODEL_BACKEND}")
+    endif()
     if(BALAS_STM32_MODEL_BOOT_MARKER)
         target_compile_definitions(${TARGET_NAME} PRIVATE BALAS_STM32_MODEL_BOOT_MARKER=1)
     endif()
