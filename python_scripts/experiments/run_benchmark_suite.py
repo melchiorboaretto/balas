@@ -1,6 +1,7 @@
 import argparse
 import csv
 import os
+import re
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,8 @@ CSV_FIELDNAMES = [
     "suite_name",
     "family",
     "name",
+    "target",
+    "model_backend",
     "status",
     "error",
     "model_path",
@@ -61,6 +64,23 @@ CSV_FIELDNAMES = [
     "deploy_time_ms",
     "profiling_time_ms",
 ]
+
+STM32_EDGEAI_PARAMS = REPO_ROOT / "cpp-project/stm32-tflite-test/Core/Generated/EdgeAI/balas_model_data_params.h"
+
+
+def parse_stm32_edgeai_activation_size() -> int:
+    text = STM32_EDGEAI_PARAMS.read_text(encoding="utf-8")
+    match = re.search(r"#define\s+AI_BALAS_MODEL_DATA_ACTIVATIONS_SIZE\s+\((\d+)\)", text)
+    if not match:
+        raise RuntimeError(f"Could not parse activation size from {STM32_EDGEAI_PARAMS}")
+    return int(match.group(1))
+
+
+def resolve_target_config(entry: dict, default_options: dict) -> tuple[str, str, bool]:
+    target = entry.get("target") or default_options["target"]
+    model_backend = entry.get("model_backend") or default_options["model_backend"]
+    use_stm32_edgeai = target == "stm32" and model_backend == "stedgeai"
+    return target, model_backend, use_stm32_edgeai
 
 
 def quantize_for_model(float_input: np.ndarray, input_details: dict) -> np.ndarray:
@@ -154,11 +174,21 @@ def run_entry(
 
     family = entry.get("family", "unclassified")
     name = entry.get("name", model_path.stem)
+    target, model_backend, use_stm32_edgeai = resolve_target_config(entry, default_options)
+    os.environ["BALAS_TARGET"] = target
+    if target == "stm32":
+        os.environ.setdefault("BALAS_STM32_ENABLE_MODEL", "ON")
+        os.environ["BALAS_STM32_MODEL_BACKEND"] = model_backend
     serial_device = entry.get("serial_device") or default_options["serial_device"]
     skip_compile = bool(entry.get("skip_compile", default_options["skip_compile"]))
     skip_deploy = bool(entry.get("skip_deploy", default_options["skip_deploy"]))
 
-    arena_source = "manual" if entry.get("arena_size") is not None else "stm32tflm"
+    if entry.get("arena_size") is not None:
+        arena_source = "manual"
+    elif use_stm32_edgeai:
+        arena_source = "stedgeai"
+    else:
+        arena_source = "stm32tflm"
     arena_estimated = None
     arena_initial = None
     arena_final = None
@@ -184,6 +214,11 @@ def run_entry(
         if entry.get("arena_size") is not None:
             arena_initial = int(entry["arena_size"])
             arena_estimated = arena_initial
+        elif use_stm32_edgeai:
+            arena_start = time.perf_counter_ns()
+            arena_estimated = parse_stm32_edgeai_activation_size()
+            arena_time_ms = (time.perf_counter_ns() - arena_start) / 1_000_000.0
+            arena_initial = arena_estimated
         else:
             arena_start = time.perf_counter_ns()
             arena_estimated = estimate_tensor_arena_size(str(model_path))
@@ -204,9 +239,10 @@ def run_entry(
         current_arena = arena_initial
         while attempts < max_attempts:
             attempts += 1
-            codegen_start = time.perf_counter_ns()
-            generate_cpp_code(str(model_path), current_arena)
-            cpp_codegen_time_ms += (time.perf_counter_ns() - codegen_start) / 1_000_000.0
+            if not use_stm32_edgeai:
+                codegen_start = time.perf_counter_ns()
+                generate_cpp_code(str(model_path), current_arena)
+                cpp_codegen_time_ms += (time.perf_counter_ns() - codegen_start) / 1_000_000.0
 
             if not skip_compile:
                 compile_start = time.perf_counter_ns()
@@ -247,6 +283,8 @@ def run_entry(
         "suite_name": suite_name,
         "family": family,
         "name": name,
+        "target": target,
+        "model_backend": model_backend,
         "status": status,
         "error": error,
         "model_path": relative_to_repo(model_path),
@@ -327,6 +365,11 @@ def main() -> None:
         "serial_device": defaults.get("serial_device", args.serial_device),
         "skip_compile": defaults.get("skip_compile", args.skip_compile),
         "skip_deploy": defaults.get("skip_deploy", args.skip_deploy),
+        "target": defaults.get("target", os.environ.get("BALAS_TARGET", "nxp")),
+        "model_backend": defaults.get(
+            "model_backend",
+            os.environ.get("BALAS_STM32_MODEL_BACKEND", "stedgeai"),
+        ),
     }
 
     output_csv = Path(args.output_csv).resolve()

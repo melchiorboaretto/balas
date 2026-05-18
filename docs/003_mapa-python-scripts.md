@@ -212,6 +212,8 @@ Use quando:
 
 - voce quer construir um CSV experimental mais rico
 - voce quer comparar estimadores com latencia real da MCU
+- voce quer rodar o mesmo fixture no alvo STM32 usando `target=stm32` e
+  `model_backend=stedgeai`
 - voce quer se aproximar do experimento do artigo
 
 ## `python_scripts/experiments/analyze_benchmark_suite.py`

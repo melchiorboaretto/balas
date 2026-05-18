@@ -577,6 +577,13 @@ Correcao aplicada:
   `BALAS_TARGET=stm32 BALAS_STM32_ENABLE_MODEL=ON .venv/bin/python automator.py ...`
   compilou, gravou, enviou 10 amostras pela serial e gerou
   `avg_inference_us = 23388.5`, `std_inference_us = 5.200961449578338`.
+- Validacao do runner experimental:
+  `.venv/bin/python python_scripts/experiments/run_benchmark_suite.py
+  testdata/sanity-model/stm32-edgeai-suite.json artifacts/stm32_edgeai_suite.csv`
+  completou com `Successful entries: 1/1`.
+- Comparativo inicial documentado em
+  `docs/017_comparativo-frdm-nucleo-sanity.md`: FRDM-MCXN947 historica do
+  fixture com `234708.2 us`; NUCLEO-H723ZG medida com `23388.5 us`.
 - O backend TFLM anterior continua selecionavel para diagnostico com
   `BALAS_STM32_MODEL_BACKEND=tflm`, mas nao e o caminho recomendado enquanto a
   biblioteca TFLM vier do projeto NXP.
@@ -598,7 +605,7 @@ Correcao aplicada:
 - [x] Atualizar `deploy.sh` para usar `STM32_Programmer_CLI`.
 - [x] Validar `automator.py` com `BALAS_SERIAL_PORT=/dev/ttyACM*`.
 - [x] Registrar resultado de sanity test inicial na NUCLEO-H723ZG.
-- [ ] Registrar resultados de sanity test comparando FRDM-MCXN947 e NUCLEO-H723ZG.
+- [x] Registrar resultados de sanity test comparando FRDM-MCXN947 e NUCLEO-H723ZG.
 
 ## Riscos tecnicos
 

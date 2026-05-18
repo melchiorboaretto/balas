@@ -13,6 +13,7 @@ testdata/sanity-model/
   README.md
   manifest.json
   model_quant.tflite
+  stm32-edgeai-suite.json
   profiling_dataset/
     sample_001.bin
     ...
@@ -29,6 +30,10 @@ testdata/sanity-model/
 
 - `manifest.json`
   Metadados do fixture e dos valores observados na validacao.
+
+- `stm32-edgeai-suite.json`
+  Manifesto minimo para rodar o mesmo fixture na `NUCLEO-H723ZG` com
+  `BALAS_TARGET=stm32` e backend `stedgeai`.
 
 ## O que este fixture representa
 

@@ -19,6 +19,7 @@ datasets/cifar-10-batches-py/
 artifacts/phase1_image_classification/generated/
 artifacts/stedgeai-sanity/
 artifacts/*.csv
+artifacts/*.md
 assets/*.zip
 assets/*.crdownload
 cpp-project/stm32-tflite-test/build*/
