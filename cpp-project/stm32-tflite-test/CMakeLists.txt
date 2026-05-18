@@ -10,13 +10,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CUBE_H7_PATH "${CMAKE_CURRENT_LIST_DIR}/../../external/STM32CubeH7" CACHE PATH "Path to STM32CubeH7 package")
 set(NXP_TFLITE_PROJECT_PATH "${CMAKE_CURRENT_LIST_DIR}/../tflite-test" CACHE PATH "Path to the current NXP TFLite project")
 option(BALAS_STM32_ENABLE_MODEL "Compile the STM32 MyModel port and link TensorFlow Lite Micro" OFF)
+option(BALAS_STM32_MODEL_BOOT_MARKER "Emit debug UART bytes while starting the model firmware" OFF)
 
 set(LINKER_SCRIPT "${CMAKE_CURRENT_LIST_DIR}/STM32H723ZGTX_FLASH.ld")
-set(TARGET_NAME stm32-tflite-echo)
+set(TARGET_NAME stm32-tflite-test)
 
 add_executable(${TARGET_NAME}
     Startup/startup_stm32h723zgtx.s
-    Core/Src/main.c
     Core/Src/stm32h7xx_hal_msp.c
     Core/Src/stm32h7xx_it.c
     Core/Src/system_stm32h7xx.c
@@ -35,6 +35,12 @@ add_executable(${TARGET_NAME}
 
 set_target_properties(${TARGET_NAME} PROPERTIES SUFFIX ".elf")
 
+if(BALAS_STM32_ENABLE_MODEL)
+    target_sources(${TARGET_NAME} PRIVATE Core/Src/main_model.cpp)
+else()
+    target_sources(${TARGET_NAME} PRIVATE Core/Src/main.c)
+endif()
+
 target_compile_definitions(${TARGET_NAME} PRIVATE
     STM32H723xx
     USE_HAL_DRIVER
@@ -52,9 +58,12 @@ if(BALAS_STM32_ENABLE_MODEL)
     target_sources(${TARGET_NAME} PRIVATE
         Core/Model/model.cpp
         Core/Model/quantization.cpp
+        Core/Platform/serial_io.cpp
+        Core/Platform/timer.cpp
     )
     target_include_directories(${TARGET_NAME} PRIVATE
         Core/Model
+        Core/Platform
         ${NXP_TFLITE_PROJECT_PATH}
         ${NXP_TFLITE_PROJECT_PATH}/tensorflow/tensorflow_headers
         ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/flatbuffers/include
@@ -66,6 +75,9 @@ if(BALAS_STM32_ENABLE_MODEL)
     target_link_libraries(${TARGET_NAME} PRIVATE
         ${NXP_TFLITE_PROJECT_PATH}/tensorflow/libtensorflow-microlite.a
     )
+    if(BALAS_STM32_MODEL_BOOT_MARKER)
+        target_compile_definitions(${TARGET_NAME} PRIVATE BALAS_STM32_MODEL_BOOT_MARKER=1)
+    endif()
 endif()
 
 set(CPU_FLAGS

@@ -538,7 +538,7 @@ Correcao aplicada:
 - O primeiro `deploy.sh` apontava para `build/stm32-tflite-echo`, um ELF sem
   extensao. O `STM32_Programmer_CLI -w` rejeita esse caminho porque exige uma
   extensao conhecida (`.elf`, `.hex`, `.bin`, etc.).
-- O alvo CMake agora gera `stm32-tflite-echo.elf`, e `deploy.sh` usa esse
+- O alvo CMake agora gera `stm32-tflite-test.elf`, e `deploy.sh` usa esse
   arquivo por padrao.
 - `Core/Model/model.cpp` foi portado para o alvo STM32 sem alterar o
   `cpp-project/tflite-test/model/model.cpp` original da NXP. O port remove
@@ -549,9 +549,19 @@ Correcao aplicada:
   desligada por padrao ate existir uma `libtensorflow-microlite.a` recompilada
   para Cortex-M7.
 - `BALAS_TARGET=stm32 BALAS_STM32_ENABLE_MODEL=ON ./compile.sh` compila o
-  arquivo portado. Como o `main.c` atual ainda e o firmware de eco, o linker
-  remove o codigo de modelo nao referenciado; a proxima etapa e instanciar
-  `MyModel` no loop STM32 e resolver a TFLM Cortex-M7.
+  loop STM32 de inferencia em `Core/Src/main_model.cpp`.
+- `Core/Platform/serial_io.cpp` implementa o protocolo serial com
+  `HAL_UART_Receive`/`HAL_UART_Transmit` em `USART3`.
+- `Core/Platform/timer.cpp` mede tempo com `DWT->CYCCNT` e converte ciclos para
+  microssegundos via `SystemCoreClock`.
+- Validacao com marcadores UART (`BALAS_STM32_MODEL_BOOT_MARKER=ON`) mostrou:
+  o firmware inicializa UART, constroi `MyModel`, recebe os 12288 bytes do
+  tensor float32 enviado pelo host, entra em `run_inference`, conclui a etapa de
+  quantizacao e bloqueia dentro de `interpreter.Invoke()`.
+- Hipotese tecnica atual: a `libtensorflow-microlite.a` usada no link ainda e a
+  biblioteca do projeto NXP, compilada para Cortex-M33 (`ARMv8-M.mainline`).
+  Para concluir o port funcional, e necessario recompilar TFLM para
+  Cortex-M7/STM32H723ZG ou trocar para o fluxo X-CUBE-AI/ST Edge AI.
 
 ## Checklist de alteracoes no repositorio
 
@@ -564,8 +574,8 @@ Correcao aplicada:
 - [x] Remover dependencia de `fsl_common.h` em `model.cpp`.
 - [x] Trocar `__ALIGNED(16)` por macro portavel ou macro CMSIS compativel.
 - [ ] Recompilar `libtensorflow-microlite.a` para Cortex-M7 ou trocar por fluxo STM32/X-CUBE-AI.
-- [ ] Reimplementar `serial_io.cpp` para STM32 HAL/LL.
-- [ ] Reimplementar `timer.cpp` para STM32 HAL/LL ou DWT.
+- [x] Reimplementar `serial_io.cpp` para STM32 HAL/LL.
+- [x] Reimplementar `timer.cpp` para STM32 HAL/LL ou DWT.
 - [x] Atualizar `compile.sh` para selecionar alvo STM32.
 - [x] Atualizar `deploy.sh` para usar `STM32_Programmer_CLI`.
 - [ ] Validar `automator.py` com `BALAS_SERIAL_PORT=/dev/ttyACM*`.

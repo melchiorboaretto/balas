@@ -2,7 +2,7 @@
 
 This is the first STM32 port target for the `NUCLEO-H723ZG`.
 
-It currently builds a minimal firmware that:
+With `BALAS_STM32_ENABLE_MODEL=OFF`, it builds a minimal firmware that:
 
 - configures the STM32H723ZG clock from the official ST template;
 - configures USART3 on PD8/PD9 for the ST-LINK Virtual COM Port;
@@ -12,9 +12,7 @@ It currently builds a minimal firmware that:
 
 The STM32-specific `MyModel` port lives in `Core/Model`. It removes the NXP
 `fsl_common.h` dependency and uses a local GCC alignment macro for the tensor
-arena. It is not enabled in the default firmware yet because the current
-`libtensorflow-microlite.a` in the NXP project was built for Cortex-M33, while
-this board is Cortex-M7.
+arena.
 
 The NXP/MCUXpresso target remains the default. Build this target with:
 
@@ -28,9 +26,23 @@ To compile the STM32 `MyModel` port into the target build:
 BALAS_TARGET=stm32 BALAS_STM32_ENABLE_MODEL=ON ./compile.sh
 ```
 
-The current `main.c` still runs the echo firmware, so the linker can garbage
-collect unused model code. Instantiating `MyModel` in the STM32 main loop is the
-next integration step.
+With `BALAS_STM32_ENABLE_MODEL=ON`, the build uses `Core/Src/main_model.cpp`,
+`Core/Platform/serial_io.cpp`, and `Core/Platform/timer.cpp`. This matches the
+NXP protocol: receive one float32 input tensor, run inference, and return one
+little-endian signed `int` with elapsed microseconds.
+
+Current validation status: the firmware builds, flashes, constructs `MyModel`,
+and receives the full 12288-byte input tensor. It then blocks inside
+`interpreter.Invoke()`. The current `libtensorflow-microlite.a` still comes from
+the NXP project and was built for Cortex-M33; the next required step is a
+Cortex-M7 TFLM library.
+
+For local diagnosis, this emits boot/progress bytes without changing normal
+builds:
+
+```bash
+BALAS_TARGET=stm32 BALAS_STM32_ENABLE_MODEL=ON BALAS_STM32_MODEL_BOOT_MARKER=ON ./compile.sh
+```
 
 Flash it with:
 
@@ -41,7 +53,7 @@ BALAS_TARGET=stm32 ./deploy.sh
 The default firmware passed to `STM32_Programmer_CLI` is:
 
 ```text
-cpp-project/stm32-tflite-test/build/stm32-tflite-echo.elf
+cpp-project/stm32-tflite-test/build/stm32-tflite-test.elf
 ```
 
 The project expects the official `STM32CubeH7` package at:
