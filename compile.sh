@@ -11,8 +11,31 @@ if [[ -f "$CONFIG_FILE" ]]; then
 fi
 
 REPO_ROOT="${REPO_ROOT:-$SCRIPT_DIR}"
+BALAS_TARGET="${BALAS_TARGET:-nxp}"
 PROJECT_NAME="${PROJECT_NAME:-tflite-test}"
 BUILD_CONFIG="${BUILD_CONFIG:-Debug}"
+
+if [[ "$BALAS_TARGET" == "stm32" ]]; then
+    STM32_PROJECT_DIR="${STM32_PROJECT_DIR:-$REPO_ROOT/cpp-project/stm32-tflite-test}"
+    STM32_BUILD_DIR="${STM32_BUILD_DIR:-$STM32_PROJECT_DIR/build}"
+    STM32_CMAKE_TOOLCHAIN_FILE="${STM32_CMAKE_TOOLCHAIN_FILE:-$STM32_PROJECT_DIR/cmake/arm-none-eabi-gcc.cmake}"
+    CMAKE_GENERATOR="${CMAKE_GENERATOR:-Ninja}"
+
+    cmake -S "$STM32_PROJECT_DIR" -B "$STM32_BUILD_DIR" \
+      -G "$CMAKE_GENERATOR" \
+      -DCMAKE_TOOLCHAIN_FILE="$STM32_CMAKE_TOOLCHAIN_FILE" \
+      -DCMAKE_BUILD_TYPE="$BUILD_CONFIG" \
+      -DBALAS_STM32_ENABLE_MODEL="${BALAS_STM32_ENABLE_MODEL:-OFF}"
+    cmake --build "$STM32_BUILD_DIR"
+    exit 0
+fi
+
+if [[ "$BALAS_TARGET" != "nxp" ]]; then
+    echo "Unsupported BALAS_TARGET: $BALAS_TARGET" >&2
+    echo "Use BALAS_TARGET=nxp or BALAS_TARGET=stm32." >&2
+    exit 1
+fi
+
 MCUX_WORKSPACE_DIR="${MCUX_WORKSPACE_DIR:-${MCUX_WORKSPACE_LOC:-$REPO_ROOT/cpp-project}}"
 MCUXPRESSO_IDE_BIN="${MCUXPRESSO_IDE_BIN:-${MCUXPRESSO:-/usr/local/mcuxpressoide/ide/mcuxpressoide}}"
 MCUX_IMPORT_PROJECT="${MCUX_IMPORT_PROJECT:-1}"

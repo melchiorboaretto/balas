@@ -11,6 +11,29 @@ if [[ -f "$CONFIG_FILE" ]]; then
 fi
 
 REPO_ROOT="${REPO_ROOT:-$SCRIPT_DIR}"
+BALAS_TARGET="${BALAS_TARGET:-nxp}"
+
+if [[ "$BALAS_TARGET" == "stm32" ]]; then
+    STM32_PROJECT_DIR="${STM32_PROJECT_DIR:-$REPO_ROOT/cpp-project/stm32-tflite-test}"
+    STM32_BUILD_DIR="${STM32_BUILD_DIR:-$STM32_PROJECT_DIR/build}"
+    STM32_FIRMWARE_FILE="${STM32_FIRMWARE_FILE:-$STM32_BUILD_DIR/stm32-tflite-echo.elf}"
+    STM32_PROGRAMMER_CLI="${STM32_PROGRAMMER_CLI:-STM32_Programmer_CLI}"
+
+    if [[ ! -f "$STM32_FIRMWARE_FILE" ]]; then
+        echo "STM32 firmware image not found: $STM32_FIRMWARE_FILE" >&2
+        echo "Build first with BALAS_TARGET=stm32 ./compile.sh or set STM32_FIRMWARE_FILE." >&2
+        exit 1
+    fi
+
+    "$STM32_PROGRAMMER_CLI" -c port=SWD -w "$STM32_FIRMWARE_FILE" -v -rst
+    exit 0
+fi
+
+if [[ "$BALAS_TARGET" != "nxp" ]]; then
+    echo "Unsupported BALAS_TARGET: $BALAS_TARGET" >&2
+    echo "Use BALAS_TARGET=nxp or BALAS_TARGET=stm32." >&2
+    exit 1
+fi
 
 PROJECT_NAME="${PROJECT_NAME:-tflite-test}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-$REPO_ROOT/cpp-project}"

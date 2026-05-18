@@ -13,8 +13,10 @@ cpp-project/tflite-test/.settings/
 cpp-project/tflite-test/Debug/
 cpp-project/tflite-test/Release/
 external/mlcommons-tiny/
+external/STM32CubeH7/
 datasets/downloads/
 datasets/cifar-10-batches-py/
 artifacts/phase1_image_classification/generated/
 assets/*.zip
 assets/*.crdownload
+cpp-project/stm32-tflite-test/build*/

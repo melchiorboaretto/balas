@@ -511,21 +511,63 @@ X-CUBE-AI:
 
 - `https://www.st.com/en/embedded-software/x-cube-ai.html`
 
+## Status inicial do port
+
+Inicio do port: 2026-05-18
+
+Foi criado o alvo `cpp-project/stm32-tflite-test` como projeto CMake separado do
+alvo NXP. O primeiro firmware e apenas de bring-up: configura clock, USART3
+PD8/PD9 para a VCP do ST-LINK, emite uma mensagem de boot e ecoa bytes em
+`115200 8N1`.
+
+Validacoes feitas:
+
+- `STM32_Programmer_CLI --version`: v2.22.0.
+- `lsusb`: placa detectada como `0483:374e STMicroelectronics STLINK-V3`.
+- VCP detectada em `/dev/ttyACM0`.
+- `BALAS_TARGET=stm32 ./compile.sh`: build CMake/Ninja concluido.
+- Artefatos gerados em `cpp-project/stm32-tflite-test/build/`.
+- Apos instalacao/reload das regras udev do ST-LINK, `STM32_Programmer_CLI`
+  detectou a placa como `NUCLEO-H723ZG`, ST-LINK `V3J6M2`, MCU
+  `STM32H72x/STM32H73x`, Cortex-M7.
+- `BALAS_TARGET=stm32 ./deploy.sh`: grava o ELF em `0x08000000`, verifica o
+  download com sucesso e executa reset por software.
+
+Correcao aplicada:
+
+- O primeiro `deploy.sh` apontava para `build/stm32-tflite-echo`, um ELF sem
+  extensao. O `STM32_Programmer_CLI -w` rejeita esse caminho porque exige uma
+  extensao conhecida (`.elf`, `.hex`, `.bin`, etc.).
+- O alvo CMake agora gera `stm32-tflite-echo.elf`, e `deploy.sh` usa esse
+  arquivo por padrao.
+- `Core/Model/model.cpp` foi portado para o alvo STM32 sem alterar o
+  `cpp-project/tflite-test/model/model.cpp` original da NXP. O port remove
+  `fsl_common.h`, troca `__ALIGNED(16)` por uma macro local e mantem `size`
+  como bytes para o protocolo serial, convertendo para quantidade de `float`
+  apenas na etapa de quantizacao.
+- O port de `MyModel` fica atras da opcao CMake `BALAS_STM32_ENABLE_MODEL`,
+  desligada por padrao ate existir uma `libtensorflow-microlite.a` recompilada
+  para Cortex-M7.
+- `BALAS_TARGET=stm32 BALAS_STM32_ENABLE_MODEL=ON ./compile.sh` compila o
+  arquivo portado. Como o `main.c` atual ainda e o firmware de eco, o linker
+  remove o codigo de modelo nao referenciado; a proxima etapa e instanciar
+  `MyModel` no loop STM32 e resolver a TFLM Cortex-M7.
+
 ## Checklist de alteracoes no repositorio
 
-- [ ] Criar novo projeto STM32, preferencialmente `cpp-project/stm32-tflite-test`.
+- [x] Criar novo projeto STM32, preferencialmente `cpp-project/stm32-tflite-test`.
 - [ ] Gerar `.ioc` para `NUCLEO-H723ZG` ou `STM32H723ZGTx`.
-- [ ] Configurar clock do STM32H723ZG no CubeMX/CubeIDE.
-- [ ] Configurar UART conectada ao Virtual COM Port do ST-LINK em 115200 8N1.
+- [x] Configurar clock do STM32H723ZG no CubeMX/CubeIDE.
+- [x] Configurar UART conectada ao Virtual COM Port do ST-LINK em 115200 8N1.
 - [ ] Configurar mecanismo de medicao de tempo.
-- [ ] Substituir startup/linker/device headers NXP por STM32.
-- [ ] Remover dependencia de `fsl_common.h` em `model.cpp`.
-- [ ] Trocar `__ALIGNED(16)` por macro portavel ou macro CMSIS compativel.
+- [x] Substituir startup/linker/device headers NXP por STM32.
+- [x] Remover dependencia de `fsl_common.h` em `model.cpp`.
+- [x] Trocar `__ALIGNED(16)` por macro portavel ou macro CMSIS compativel.
 - [ ] Recompilar `libtensorflow-microlite.a` para Cortex-M7 ou trocar por fluxo STM32/X-CUBE-AI.
 - [ ] Reimplementar `serial_io.cpp` para STM32 HAL/LL.
 - [ ] Reimplementar `timer.cpp` para STM32 HAL/LL ou DWT.
-- [ ] Atualizar `compile.sh` para selecionar alvo STM32.
-- [ ] Atualizar `deploy.sh` para usar `STM32_Programmer_CLI`.
+- [x] Atualizar `compile.sh` para selecionar alvo STM32.
+- [x] Atualizar `deploy.sh` para usar `STM32_Programmer_CLI`.
 - [ ] Validar `automator.py` com `BALAS_SERIAL_PORT=/dev/ttyACM*`.
 - [ ] Registrar resultados de sanity test comparando FRDM-MCXN947 e NUCLEO-H723ZG.
 
