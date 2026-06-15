@@ -14,6 +14,7 @@ cpp-project/tflite-test/Debug/
 cpp-project/tflite-test/Release/
 external/mlcommons-tiny/
 external/STM32CubeH7/
+external/tflm-stm32/
 datasets/downloads/
 datasets/cifar-10-batches-py/
 artifacts/phase1_image_classification/generated/

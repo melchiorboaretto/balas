@@ -10,6 +10,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CUBE_H7_PATH "${CMAKE_CURRENT_LIST_DIR}/../../external/STM32CubeH7" CACHE PATH "Path to STM32CubeH7 package")
 set(NXP_TFLITE_PROJECT_PATH "${CMAKE_CURRENT_LIST_DIR}/../tflite-test" CACHE PATH "Path to the current NXP TFLite project")
 set(STEDGEAI_ROOT "$ENV{HOME}/opt/st/x-cube-ai/10.2.0/stedgeai-linux-10.2.0" CACHE PATH "Path to the ST Edge AI package")
+set(TFLM_STM32_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../external/tflm-stm32" CACHE PATH "Path to the generated STM32 TFLM package")
+set(TFLM_STM32_SRC_DIR "${TFLM_STM32_ROOT}/src/tflite-micro" CACHE PATH "Path to the STM32 TFLM source checkout")
 set(BALAS_STM32_MODEL_BACKEND "stedgeai" CACHE STRING "STM32 inference backend: stedgeai or tflm")
 set_property(CACHE BALAS_STM32_MODEL_BACKEND PROPERTY STRINGS stedgeai tflm)
 option(BALAS_STM32_ENABLE_MODEL "Compile the STM32 MyModel port" OFF)
@@ -83,20 +85,27 @@ if(BALAS_STM32_ENABLE_MODEL)
             ${STEDGEAI_ROOT}/Middlewares/ST/AI/Lib/GCC/STM32H7/NetworkRuntime1020_CM7_GCC.a
         )
     elseif(BALAS_STM32_MODEL_BACKEND STREQUAL "tflm")
+        set(TFLM_STM32_GEN_DIR "${TFLM_STM32_SRC_DIR}/gen/cortex_m_generic_cortex-m7+fp_default_cmsis_nn_gcc")
+        set(TFLM_STM32_DOWNLOADS_DIR "${TFLM_STM32_SRC_DIR}/tensorflow/lite/micro/tools/make/downloads")
+        set(TFLM_STM32_LIB "${TFLM_STM32_ROOT}/package/lib/libtensorflow-microlite.a")
+        if(NOT EXISTS "${TFLM_STM32_LIB}")
+            message(FATAL_ERROR "STM32 TFLM library not found: ${TFLM_STM32_LIB}. Run scripts/build_tflm_stm32.sh first.")
+        endif()
         target_sources(${TARGET_NAME} PRIVATE
             Core/Model/model.cpp
         )
         target_include_directories(${TARGET_NAME} PRIVATE
-            ${NXP_TFLITE_PROJECT_PATH}
-            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/tensorflow_headers
-            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/flatbuffers/include
-            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/gemmlowp
-            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/cmsis
-            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/cmsis_nn
-            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/third_party_headers/kissfft
+            ${TFLM_STM32_SRC_DIR}
+            ${TFLM_STM32_GEN_DIR}/genfiles
+            ${TFLM_STM32_DOWNLOADS_DIR}/flatbuffers/include
+            ${TFLM_STM32_DOWNLOADS_DIR}/gemmlowp
+            ${TFLM_STM32_DOWNLOADS_DIR}/cmsis/CMSIS/Core/Include
+            ${TFLM_STM32_DOWNLOADS_DIR}/cmsis_nn
+            ${TFLM_STM32_DOWNLOADS_DIR}/cmsis_nn/Include
+            ${TFLM_STM32_DOWNLOADS_DIR}/kissfft
         )
         target_link_libraries(${TARGET_NAME} PRIVATE
-            ${NXP_TFLITE_PROJECT_PATH}/tensorflow/libtensorflow-microlite.a
+            ${TFLM_STM32_LIB}
         )
     else()
         message(FATAL_ERROR "Unsupported BALAS_STM32_MODEL_BACKEND=${BALAS_STM32_MODEL_BACKEND}")
