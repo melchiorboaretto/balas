@@ -6,6 +6,8 @@ import serial
 
 from python_scripts.config import default_serial_port
 
+DEFAULT_SERIAL_TIMEOUT_SEC = float(os.environ.get("BALAS_SERIAL_TIMEOUT_SEC", "60"))
+
 def load_bin_dir_as_f32_list(dir_path):
     """
     Loads all .bin files in a directory as float32 numpy arrays.
@@ -39,7 +41,7 @@ def send_array_and_get_int(port_name, array: np.ndarray) -> int:
         raise ValueError("Array must be of dtype float32")
 
     # Open serial port
-    with serial.Serial(port=port_name, baudrate=115200, timeout=10) as ser:
+    with serial.Serial(port=port_name, baudrate=115200, timeout=DEFAULT_SERIAL_TIMEOUT_SEC) as ser:
         # Send the array as raw bytes
         ser.write(array.tobytes())
 
@@ -84,7 +86,7 @@ def send_random_input_and_get_result(model_path: str, serial_port: str) -> int:
 
     print(f"Sending {input_shape} float values. {len(payload)} bytes")
     # Open serial
-    with serial.Serial(serial_port, baudrate=115200, timeout=10) as ser:
+    with serial.Serial(serial_port, baudrate=115200, timeout=DEFAULT_SERIAL_TIMEOUT_SEC) as ser:
         # Send payload
         ser.write(payload)
 

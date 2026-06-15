@@ -378,3 +378,128 @@ e então:
 
 ajustando o manifesto para `model_backend=tflm` antes de usar o resultado como
 comparacao valida.
+
+## Retomada em 2026-06-14 - validacao funcional
+
+Depois da limpeza da worktree em commits separados, a investigacao continuou a
+partir do firmware minimo.
+
+### UART e boot
+
+O firmware minimo foi reduzido para nao configurar MPU, cache nem PLL antes do
+teste de serial. Ele passou a emitir periodicamente:
+
+```text
+BALAS STM32H723ZG echo ready
+```
+
+Resultado:
+
+- a VCP `/dev/ttyACM0` voltou a responder;
+- a board foi validada como viva sem depender do instante exato do boot;
+- o problema anterior de "sem nenhum byte serial" ficou isolado no bring-up de
+  clock/cache/MPU, nao no ST-LINK nem no cabo.
+
+### TFLM com CMSIS-NN
+
+Com o firmware de modelo usando TFLM e `BALAS_STM32_MODEL_BOOT_MARKER=ON`, a
+placa retornou:
+
+```text
+RQG
+```
+
+Interpretacao dos marcadores:
+
+- `R`: recebeu os `12288` bytes da amostra;
+- `Q`: entrou/concluiu a quantizacao `float32 -> int8`;
+- `G`: entrou em `interpreter.Invoke()`;
+- ausencia de `D`: nao saiu normalmente do `Invoke()`.
+
+O core foi parado via hotplug e o PC apontou para:
+
+```text
+AbortImpl()
+```
+
+A pilha mostrou o abort vindo do caminho:
+
+```text
+tflite::(anonymous namespace)::EvalQuantizedPerChannel(...)
+tflite::(anonymous namespace)::Eval(...)
+tensorflow/lite/micro/kernels/cmsis_nn/conv.cc
+```
+
+Conclusao:
+
+- a integracao TFLM ja inicializava e recebia dados corretamente;
+- o problema especifico era o kernel Conv2D otimizado por CMSIS-NN abortando
+  durante a inferencia.
+
+### TFLM sem CMSIS-NN
+
+Foi compilada uma biblioteca TFLM alternativa sem `OPTIMIZED_KERNEL_DIR`, usando
+os kernels de referencia:
+
+```bash
+make -C external/tflm-stm32/src/tflite-micro \
+  -j8 \
+  -f tensorflow/lite/micro/tools/make/Makefile \
+  TARGET=cortex_m_generic \
+  TARGET_ARCH=cortex-m7+fp \
+  FPU=fpv5-d16 \
+  OPTIMIZED_KERNEL_DIR= \
+  TARGET_TOOLCHAIN_ROOT=/home/christian/bin/ \
+  microlite
+```
+
+Essa biblioteca foi copiada para:
+
+```text
+external/tflm-stm32/package/lib/libtensorflow-microlite.a
+```
+
+Com essa variante, o firmware com marcadores retornou:
+
+```text
+RQGDV + int32 + W
+```
+
+Tempo observado em `sample_001.bin`:
+
+```text
+26333142 us
+```
+
+Depois, o firmware sem marcadores foi regravado e o protocolo normal do profiler
+tambem funcionou:
+
+```text
+25165567 us
+```
+
+Conclusao:
+
+- o port TFLM/STM32 esta funcional com kernels de referencia;
+- ainda nao e uma comparacao de desempenho justa, porque o firmware esta
+  rodando sem a configuracao de clock/cache final;
+- o proximo trabalho e reintroduzir clock/cache de forma controlada e depois
+  investigar por que o caminho CMSIS-NN aborta no Conv2D.
+
+### Ajuste no profiler
+
+O timeout serial fixo de `10s` em `python_scripts/profiler/profiler.py` era
+insuficiente para o TFLM de referencia no clock atual. Foi adicionado:
+
+```text
+BALAS_SERIAL_TIMEOUT_SEC
+```
+
+Default atual:
+
+```text
+60s
+```
+
+Isso permite que o runner consiga medir firmwares mais lentos sem alterar o
+protocolo serial.
