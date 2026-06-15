@@ -589,3 +589,178 @@ Conclusao desta etapa:
   `25165567 us` para `1213081 us`, cerca de `20.7x` mais rapido;
 - o proximo passo continua sendo investigar o abort do Conv2D no caminho
   CMSIS-NN, sem alterar o projeto NXP de referencia.
+
+## Plano de aproximacao de performance com TFLM
+
+O gargalo medido nao parece ser UART, quantizacao de entrada ou overhead geral
+do loop de aplicacao. O grafo quantizado contem 9 operadores `CONV_2D` INT8,
+que somam aproximadamente `12.5M MACs` por inferencia. Com o clock/cache
+restaurado, o TFLM de referencia entregou cerca de `10.3 MMAC/s`, enquanto os
+resultados historicos indicam aproximadamente `53.3 MMAC/s` no NXP/TFLM e
+`534 MMAC/s` no STM32/ST Edge AI.
+
+Hipotese principal:
+
+- o TFLM/STM32 esta funcional, mas atualmente usa kernels de referencia;
+- a maior parte do tempo esta nos `CONV_2D`;
+- o caminho CMSIS-NN deveria reduzir esse custo, mas aborta dentro do
+  `Conv2D`;
+- sem resolver esse abort, ajustes de memoria e flags tendem a trazer ganhos
+  incrementais, nao a reducao de ordem de grandeza necessaria.
+
+Plano de execucao:
+
+1. Reconstruir `external/tflm-stm32/package/lib/libtensorflow-microlite.a` com
+   `TFLM_OPTIMIZED_KERNEL_DIR=cmsis_nn`.
+2. Recompilar o firmware STM32/TFLM com `BALAS_STM32_MODEL_BOOT_MARKER=ON`.
+3. Reproduzir o abort e coletar o ponto exato com marcadores UART e, se
+   necessario, hotplug/SWD.
+4. Instrumentar apenas o port STM32 para identificar qual `CONV_2D` e quais
+   dimensoes/parametros causam a falha.
+5. Corrigir a integracao CMSIS-NN sem alterar o projeto NXP de referencia.
+6. Validar novamente `sample_001.bin` e comparar:
+   - STM32/TFLM referencia;
+   - STM32/TFLM CMSIS-NN;
+   - NXP/TFLM historico;
+   - STM32/ST Edge AI historico.
+
+Riscos conhecidos:
+
+- o abort anterior apareceu como uma assercao de FlatBuffers (`i < size()`) ou
+  como falha em `AbortImpl()`, portanto a primeira investigacao deve descartar
+  incompatibilidade entre headers, biblioteca TFLM gerada e modelo;
+- se o wrapper CMSIS-NN rejeitar algum shape, a correcao pode precisar de
+  fallback seletivo para o kernel de referencia em camadas especificas;
+- a comparacao so sera justa depois de registrar no `build-info.env` qual
+  variante da TFLM esta linkada.
+
+## Execucao do plano: CMSIS-NN parcial
+
+A primeira tentativa de reconstruir o pacote com:
+
+```bash
+TFLM_OPTIMIZED_KERNEL_DIR=cmsis_nn ./scripts/build_tflm_stm32.sh
+```
+
+expos um problema no script: ele selecionava a biblioteca gerada mais recente
+por timestamp. Como a lib de referencia havia sido gerada depois da lib
+`cmsis_nn`, o `build-info.env` podia dizer `TFLM_OPTIMIZED_KERNEL_DIR=cmsis_nn`
+enquanto `package/lib/libtensorflow-microlite.a` ainda era a variante sem
+CMSIS-NN.
+
+Correcao aplicada:
+
+- o script agora calcula explicitamente o diretorio esperado:
+  - sem otimizacao: `gen/cortex_m_generic_cortex-m7+fp_default_gcc`;
+  - com CMSIS-NN:
+    `gen/cortex_m_generic_cortex-m7+fp_default_cmsis_nn_gcc`;
+- a lib copiada para `external/tflm-stm32/package/lib` passa a vir desse
+  diretorio, nao do artefato mais recente.
+
+Depois disso, a lib `cmsis_nn` real foi confirmada com simbolos como:
+
+```text
+arm_convolve_wrapper_s8
+arm_convolve_wrapper_s8_get_buffer_size
+```
+
+### Abort original do Conv2D
+
+Com firmware marcado (`BALAS_STM32_MODEL_BOOT_MARKER=ON`), a reproducao voltou
+a parar em:
+
+```text
+RQG
+```
+
+Isso indica:
+
+- `R`: a amostra foi recebida;
+- `Q`: a entrada foi quantizada;
+- `G`: entrou em `interpreter.Invoke()`;
+- ausencia de `D`: nao saiu do `Invoke()`.
+
+O hotplug via SWD mostrou `PC=0x0800514c`, mapeado para:
+
+```text
+AbortImpl()
+```
+
+A pilha apontou primeiro para `cmsis_nn/conv.cc` em
+`EvalQuantizedPerChannel`, no `TFLITE_DCHECK` que abortava quando
+`arm_convolve_wrapper_s8` retornava erro.
+
+Foram aplicados patches locais ao pacote TFLM/STM32:
+
+```text
+scripts/patches/tflm-stm32-cmsis-nn-conv.patch
+scripts/patches/tflm-stm32-cmsis-nn-pooling.patch
+```
+
+Esses patches sao aplicados automaticamente por `scripts/build_tflm_stm32.sh`
+apos o checkout do commit TFLM.
+
+Mudancas principais:
+
+- em `cmsis_nn/conv.cc`, `filter_dims.n` passou de `1` para
+  `filter->dims->data[0]`, alinhando o campo `n` com os canais de saida dos
+  filtros;
+- se `arm_convolve_wrapper_*` rejeitar um `Conv2D` INT8, o kernel cai para
+  `reference_integer_ops::ConvPerChannel` em vez de abortar;
+- em `cmsis_nn/pooling.cc`, se `arm_avgpool_*` rejeitar o pooling, o kernel cai
+  para `AveragePoolingEvalQuantized`.
+
+### Resultado apos os patches
+
+Com marcadores, o firmware passou a retornar:
+
+```text
+RQGDV + int32 + W
+```
+
+Exemplo observado:
+
+```text
+RQGDV f2 66 0d 00 W
+```
+
+O inteiro de tempo fica depois do marcador `V`, portanto:
+
+```text
+0x000d66f2 = 878322 us
+```
+
+Sem marcadores, o protocolo normal retornou:
+
+```text
+877978 us
+877983 us
+```
+
+As duas leituras acima foram feitas com reset entre execucoes. Uma tentativa de
+duas inferencias consecutivas na mesma sessao serial retornou a primeira
+medicao (`877978 us`) e depois expirou na segunda leitura. Isso fica como
+problema residual de reentrada/sincronizacao a investigar antes de rodar o
+dataset inteiro sem reset entre amostras.
+
+Comparacao parcial atual para `sample_001.bin`:
+
+| Alvo | Backend | Tempo |
+| --- | --- | ---: |
+| NUCLEO-H723ZG | TFLM referencia, clock/cache | `1213081 us` |
+| NUCLEO-H723ZG | TFLM CMSIS-NN parcial | `877983 us` |
+| FRDM-MCXN947 | TFLM/NXP historico | `234708.2 us` |
+| NUCLEO-H723ZG | ST Edge AI historico | `23388.5 us` |
+
+Conclusao:
+
+- o abort do `Conv2D` foi superado para uma inferencia limpa;
+- a variante CMSIS-NN parcial ja melhora o tempo de `sample_001.bin` em cerca
+  de `1.38x` contra o TFLM de referencia com clock/cache;
+- ainda esta cerca de `3.7x` mais lenta que o NXP/TFLM historico e cerca de
+  `37.5x` mais lenta que ST Edge AI;
+- o ganho pequeno indica que ainda ha fallbacks relevantes para referencia ou
+  kernels CMSIS-NN nao ideais para parte do grafo;
+- antes de considerar a comparacao final, falta resolver a execucao
+  consecutiva sem reset e instrumentar tempo por operador para saber quais
+  camadas ainda caem em referencia.

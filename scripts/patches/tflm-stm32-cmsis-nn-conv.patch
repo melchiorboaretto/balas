@@ -1,0 +1,72 @@
+diff --git a/tensorflow/lite/micro/kernels/cmsis_nn/conv.cc b/tensorflow/lite/micro/kernels/cmsis_nn/conv.cc
+index be93e91..ff30604 100644
+--- a/tensorflow/lite/micro/kernels/cmsis_nn/conv.cc
++++ b/tensorflow/lite/micro/kernels/cmsis_nn/conv.cc
+@@ -21,6 +21,7 @@ limitations under the License.
+ #include "tensorflow/lite/kernels/internal/common.h"
+ #include "tensorflow/lite/kernels/internal/quantization_util.h"
+ #include "tensorflow/lite/kernels/internal/reference/conv.h"
++#include "tensorflow/lite/kernels/internal/reference/integer_ops/conv.h"
+ #include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
+ #include "tensorflow/lite/kernels/kernel_util.h"
+ #include "tensorflow/lite/kernels/padding.h"
+@@ -108,7 +109,7 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
+   input_dims.c = input->dims->data[3];
+ 
+   cmsis_nn_dims filter_dims;
+-  filter_dims.n = 1;
++  filter_dims.n = filter->dims->data[0];
+   filter_dims.h = filter->dims->data[1];
+   filter_dims.w = filter->dims->data[2];
+   filter_dims.c = filter->dims->data[3];
+@@ -279,7 +280,7 @@ TfLiteStatus EvalQuantizedPerChannel(TfLiteContext* context, TfLiteNode* node,
+   input_dims.c = input->dims->data[3];
+ 
+   cmsis_nn_dims filter_dims;
+-  filter_dims.n = 1;
++  filter_dims.n = filter->dims->data[0];
+   filter_dims.h = filter->dims->data[1];
+   filter_dims.w = filter->dims->data[2];
+   filter_dims.c = filter->dims->data[3];
+@@ -309,15 +310,32 @@ TfLiteStatus EvalQuantizedPerChannel(TfLiteContext* context, TfLiteNode* node,
+   }
+ 
+   // arm_convolve_wrapper_[type] dispatches the optimized kernel accordingly
+-  // with the parameters passed
+-  TFLITE_DCHECK_EQ(
+-      convolve_wrapper(
+-          &ctx, &conv_params, &quant_params, &input_dims,
+-          tflite::micro::GetTensorData<ActType>(input), &filter_dims,
+-          tflite::micro::GetTensorData<int8_t>(filter), &bias_dims,
+-          tflite::micro::GetOptionalTensorData<BiasType>(bias), &output_dims,
+-          tflite::micro::GetTensorData<ActType>(output), type),
+-      ARM_CMSIS_NN_SUCCESS);
++  // with the parameters passed. Some valid TFLM Conv2D shapes are not accepted
++  // by CMSIS-NN; keep the model functional by falling back to reference INT8.
++  const arm_cmsis_nn_status status = convolve_wrapper(
++      &ctx, &conv_params, &quant_params, &input_dims,
++      tflite::micro::GetTensorData<ActType>(input), &filter_dims,
++      tflite::micro::GetTensorData<int8_t>(filter), &bias_dims,
++      tflite::micro::GetOptionalTensorData<BiasType>(bias), &output_dims,
++      tflite::micro::GetTensorData<ActType>(output), type);
++  if (status != ARM_CMSIS_NN_SUCCESS) {
++    if (type == kTfLiteInt8) {
++      reference_integer_ops::ConvPerChannel(
++          ConvParamsQuantized(params, data.reference_op_data),
++          data.reference_op_data.per_channel_output_multiplier,
++          data.reference_op_data.per_channel_output_shift,
++          tflite::micro::GetTensorShape(input),
++          tflite::micro::GetTensorData<int8_t>(input),
++          tflite::micro::GetTensorShape(filter),
++          tflite::micro::GetTensorData<int8_t>(filter),
++          tflite::micro::GetTensorShape(bias),
++          tflite::micro::GetOptionalTensorData<int32_t>(bias),
++          tflite::micro::GetTensorShape(output),
++          tflite::micro::GetTensorData<int8_t>(output));
++      return kTfLiteOk;
++    }
++    return kTfLiteError;
++  }
+ 
+   return kTfLiteOk;
+ }

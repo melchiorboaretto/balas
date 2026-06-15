@@ -59,6 +59,25 @@ fi
 git -C "$TFLM_SRC_DIR" fetch --depth 1 origin "$TFLM_COMMIT"
 git -C "$TFLM_SRC_DIR" checkout --detach "$TFLM_COMMIT"
 
+apply_stm32_tflm_patches() {
+    local patch_file
+
+    for patch_file in "$REPO_ROOT"/scripts/patches/tflm-stm32-*.patch; do
+        if git -C "$TFLM_SRC_DIR" apply --check "$patch_file" >/dev/null 2>&1; then
+            git -C "$TFLM_SRC_DIR" apply "$patch_file"
+        elif git -C "$TFLM_SRC_DIR" apply --reverse --check "$patch_file" >/dev/null 2>&1; then
+            echo "STM32 TFLM patch already applied: $patch_file"
+        else
+            echo "Could not apply STM32 TFLM patch: $patch_file" >&2
+            exit 1
+        fi
+    done
+}
+
+if [[ "$TFLM_OPTIMIZED_KERNEL_DIR" == "cmsis_nn" ]]; then
+    apply_stm32_tflm_patches
+fi
+
 make_args=(
     -j"$JOBS"
     -f tensorflow/lite/micro/tools/make/Makefile
@@ -75,21 +94,21 @@ make_args+=("TARGET_TOOLCHAIN_ROOT=$TARGET_TOOLCHAIN_ROOT")
 
 make -C "$TFLM_SRC_DIR" "${make_args[@]}"
 
-mapfile -t built_libs < <(
+if [[ "$TFLM_OPTIMIZED_KERNEL_DIR" == "none" ]]; then
+    tflm_gen_dir="$TFLM_SRC_DIR/gen/${TFLM_TARGET}_${TFLM_TARGET_ARCH}_default_gcc"
+else
+    tflm_gen_dir="$TFLM_SRC_DIR/gen/${TFLM_TARGET}_${TFLM_TARGET_ARCH}_default_${TFLM_OPTIMIZED_KERNEL_DIR}_gcc"
+fi
+
+built_lib="$tflm_gen_dir/lib/libtensorflow-microlite.a"
+if [[ ! -f "$built_lib" ]]; then
+    echo "Expected libtensorflow-microlite.a was not produced: $built_lib" >&2
     find "$TFLM_SRC_DIR/gen" \
         -path "*/lib/libtensorflow-microlite.a" \
         -type f \
-        -printf "%T@ %p\n" |
-    sort -nr |
-    awk '{print $2}'
-)
-
-if [[ "${#built_libs[@]}" -eq 0 ]]; then
-    echo "libtensorflow-microlite.a was not produced." >&2
+        -print >&2
     exit 1
 fi
-
-built_lib="${built_libs[0]}"
 
 rm -rf "$TFLM_PACKAGE_DIR"
 mkdir -p "$TFLM_PACKAGE_DIR/lib"

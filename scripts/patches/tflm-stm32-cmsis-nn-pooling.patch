@@ -1,0 +1,36 @@
+diff --git a/tensorflow/lite/micro/kernels/cmsis_nn/pooling.cc b/tensorflow/lite/micro/kernels/cmsis_nn/pooling.cc
+index d8311db..6749837 100644
+--- a/tensorflow/lite/micro/kernels/cmsis_nn/pooling.cc
++++ b/tensorflow/lite/micro/kernels/cmsis_nn/pooling.cc
+@@ -92,17 +92,23 @@ void AverageEvalQuantized(TfLiteContext* context, const TfLiteNode* node,
+                        &filter_dims, data, input_shape, output_shape, params);
+ 
+   if (input->type == kTfLiteInt8) {
+-    TFLITE_DCHECK_EQ(
+-        arm_avgpool_s8(&ctx, &pool_params, &input_dims,
++    if (arm_avgpool_s8(&ctx, &pool_params, &input_dims,
+                        micro::GetTensorData<int8_t>(input), &filter_dims,
+-                       &output_dims, micro::GetTensorData<int8_t>(output)),
+-        ARM_CMSIS_NN_SUCCESS);
++                       &output_dims, micro::GetTensorData<int8_t>(output)) !=
++        ARM_CMSIS_NN_SUCCESS) {
++      AveragePoolingEvalQuantized<int8_t>(context, node, params,
++                                          &data.reference_op_data, input,
++                                          output);
++    }
+   } else {
+-    TFLITE_DCHECK_EQ(
+-        arm_avgpool_s16(&ctx, &pool_params, &input_dims,
++    if (arm_avgpool_s16(&ctx, &pool_params, &input_dims,
+                         micro::GetTensorData<int16_t>(input), &filter_dims,
+-                        &output_dims, micro::GetTensorData<int16_t>(output)),
+-        ARM_CMSIS_NN_SUCCESS);
++                        &output_dims, micro::GetTensorData<int16_t>(output)) !=
++        ARM_CMSIS_NN_SUCCESS) {
++      AveragePoolingEvalQuantized<int16_t>(context, node, params,
++                                           &data.reference_op_data, input,
++                                           output);
++    }
+   }
+ }
+ 
