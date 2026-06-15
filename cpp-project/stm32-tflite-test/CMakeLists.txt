@@ -49,6 +49,7 @@ endif()
 target_compile_definitions(${TARGET_NAME} PRIVATE
     STM32H723xx
     USE_HAL_DRIVER
+    USE_PWR_LDO_SUPPLY
 )
 
 target_include_directories(${TARGET_NAME} PRIVATE

@@ -503,3 +503,89 @@ Default atual:
 
 Isso permite que o runner consiga medir firmwares mais lentos sem alterar o
 protocolo serial.
+
+## Retomada do clock/cache da NUCLEO-H723ZG
+
+Depois da validacao do TFLM com kernels de referencia, o clock/cache foi
+reintroduzido usando como base o template oficial:
+
+```text
+external/STM32CubeH7/Projects/NUCLEO-H723ZG/Templates/Src/main.c
+```
+
+O problema encontrado na retomada foi que o CMake local definia apenas:
+
+```text
+STM32H723xx
+USE_HAL_DRIVER
+```
+
+O projeto oficial da ST para a NUCLEO-H723ZG tambem define:
+
+```text
+USE_PWR_LDO_SUPPLY
+```
+
+Essa definicao e usada no `SystemInit()` para configurar corretamente a fonte
+de alimentacao antes da aplicacao trocar para o clock de alta frequencia. Sem
+ela, as tentativas anteriores de voltar ao `HSE_BYPASS`/PLL/cache deixavam o
+firmware sem resposta serial, mesmo em uma aplicacao minima.
+
+Correcao aplicada no alvo STM32:
+
+- `USE_PWR_LDO_SUPPLY` foi adicionado ao target CMake;
+- o firmware minimo e o firmware de modelo voltaram a chamar `MPU_Config()`,
+  `CPU_CACHE_Enable()`, `HAL_Init()` e `SystemClock_Config()` nessa ordem;
+- `SystemClock_Config()` voltou ao perfil do template ST:
+  `HSE_BYPASS` de 8 MHz, PLL para `SYSCLK=520 MHz`, `HCLK=260 MHz` e
+  `FLASH_LATENCY_3`;
+- o projeto NXP de referencia nao foi alterado.
+
+Validacao executada:
+
+```bash
+BALAS_TARGET=stm32 BALAS_STM32_ENABLE_MODEL=OFF ./compile.sh
+STM32_Programmer_CLI -c port=SWD mode=UR \
+  -w cpp-project/stm32-tflite-test/build/stm32-tflite-test.elf -v -rst
+```
+
+Resultado do heartbeat minimo com clock/cache ativos:
+
+```text
+BALAS STM32H723ZG echo ready
+BALAS STM32H723ZG echo ready
+```
+
+Em seguida foi recompilado e gravado o backend TFLM de referencia, ainda sem
+CMSIS-NN:
+
+```bash
+BALAS_TARGET=stm32 \
+BALAS_STM32_ENABLE_MODEL=ON \
+BALAS_STM32_MODEL_BACKEND=tflm \
+./compile.sh
+
+STM32_Programmer_CLI -c port=SWD mode=UR \
+  -w cpp-project/stm32-tflite-test/build/stm32-tflite-test.elf -v -rst
+```
+
+A primeira leitura serial retornou bytes residuais do firmware de heartbeat
+anterior (`ALAS` interpretado como `1396788289`). A validacao foi corrigida
+drenando/resetando o buffer de entrada da VCP antes de enviar a amostra.
+
+Resultados repetidos para `sample_001.bin`:
+
+```text
+1213084 us
+1213081 us
+```
+
+Conclusao desta etapa:
+
+- o bring-up de clock/cache da STM32 esta funcional;
+- o TFLM/STM32 com kernels de referencia continua executando a inferencia ate o
+  fim;
+- a troca do clock/cache reduziu `sample_001.bin` de aproximadamente
+  `25165567 us` para `1213081 us`, cerca de `20.7x` mais rapido;
+- o proximo passo continua sendo investigar o abort do Conv2D no caminho
+  CMSIS-NN, sem alterar o projeto NXP de referencia.
