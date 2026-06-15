@@ -79,14 +79,14 @@ static void SystemClock_Config(void)
     while (!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {
     }
 
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
-    RCC_OscInitStruct.HSIState = RCC_HSI_OFF;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+    RCC_OscInitStruct.HSEState = RCC_HSE_OFF;
+    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
     RCC_OscInitStruct.CSIState = RCC_CSI_OFF;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
     RCC_OscInitStruct.PLL.PLLM = 4;
-    RCC_OscInitStruct.PLL.PLLN = 260;
+    RCC_OscInitStruct.PLL.PLLN = 65;
     RCC_OscInitStruct.PLL.PLLFRACN = 0;
     RCC_OscInitStruct.PLL.PLLP = 1;
     RCC_OscInitStruct.PLL.PLLR = 2;
@@ -133,4 +133,3 @@ void Error_Handler(void)
         }
     }
 }
-
