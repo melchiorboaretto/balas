@@ -1,8 +1,16 @@
 diff --git a/tensorflow/lite/micro/kernels/cmsis_nn/conv.cc b/tensorflow/lite/micro/kernels/cmsis_nn/conv.cc
-index be93e91..ff30604 100644
+index be93e91..9937562 100644
 --- a/tensorflow/lite/micro/kernels/cmsis_nn/conv.cc
 +++ b/tensorflow/lite/micro/kernels/cmsis_nn/conv.cc
-@@ -21,6 +21,7 @@ limitations under the License.
+@@ -15,18 +15,100 @@ limitations under the License.
+ 
+ #include "tensorflow/lite/micro/kernels/conv.h"
+ 
++#include <cstdint>
++
+ #include "Include/arm_nnfunctions.h"
+ #include "tensorflow/lite/c/builtin_op_data.h"
+ #include "tensorflow/lite/c/common.h"
  #include "tensorflow/lite/kernels/internal/common.h"
  #include "tensorflow/lite/kernels/internal/quantization_util.h"
  #include "tensorflow/lite/kernels/internal/reference/conv.h"
@@ -10,7 +18,114 @@ index be93e91..ff30604 100644
  #include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
  #include "tensorflow/lite/kernels/kernel_util.h"
  #include "tensorflow/lite/kernels/padding.h"
-@@ -108,7 +109,7 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
+ #include "tensorflow/lite/micro/kernels/kernel_util.h"
+ #include "tensorflow/lite/micro/micro_log.h"
+ 
++enum {
++  kBalasConvDiagCalls = 0,
++  kBalasConvDiagCmsisSuccess = 1,
++  kBalasConvDiagFallbackInt8 = 2,
++  kBalasConvDiagError = 3,
++  kBalasConvDiagCalls1x1 = 4,
++  kBalasConvDiagSuccess1x1 = 5,
++  kBalasConvDiagFallback1x1 = 6,
++  kBalasConvDiagCalls3x3 = 7,
++  kBalasConvDiagSuccess3x3 = 8,
++  kBalasConvDiagFallback3x3 = 9,
++  kBalasConvDiagScratchMissing = 10,
++  kBalasConvDiagLastStatus = 11,
++  kBalasConvDiagPersistentScratch = 12,
++  kBalasConvDiagScratchTooSmall = 13,
++  kBalasConvDiagArenaScratch = 14,
++  kBalasConvDiagBufferIdxValid = 15,
++  kBalasConvDiagLastBufferIdx = 16,
++  kBalasConvDiagLastRequiredScratch = 17,
++  kBalasConvDiagMaxRequiredScratch = 18,
++  kBalasConvDiagCount = 19,
++};
++
++static volatile uint32_t g_balas_conv_diag[kBalasConvDiagCount];
++
++extern "C" void balas_tflm_conv_diag_reset(void) {
++  for (int i = 0; i < kBalasConvDiagCount; ++i) {
++    g_balas_conv_diag[i] = 0;
++  }
++}
++
++extern "C" void balas_tflm_conv_diag_read(uint32_t* out, int out_count) {
++  if (out == nullptr || out_count <= 0) {
++    return;
++  }
++  for (int i = 0; i < out_count; ++i) {
++    out[i] = (i < kBalasConvDiagCount) ? g_balas_conv_diag[i] : 0;
++  }
++}
++
++static bool BalasConvIs1x1(const cmsis_nn_dims& filter_dims) {
++  return filter_dims.h == 1 && filter_dims.w == 1;
++}
++
++static bool BalasConvIs3x3(const cmsis_nn_dims& filter_dims) {
++  return filter_dims.h == 3 && filter_dims.w == 3;
++}
++
++static void BalasConvDiagRecordCall(const cmsis_nn_dims& filter_dims,
++                                    const cmsis_nn_context& ctx) {
++  ++g_balas_conv_diag[kBalasConvDiagCalls];
++  if (BalasConvIs1x1(filter_dims)) {
++    ++g_balas_conv_diag[kBalasConvDiagCalls1x1];
++  } else if (BalasConvIs3x3(filter_dims)) {
++    ++g_balas_conv_diag[kBalasConvDiagCalls3x3];
++  }
++  if (ctx.buf == nullptr) {
++    ++g_balas_conv_diag[kBalasConvDiagScratchMissing];
++  }
++}
++
++static void BalasConvDiagRecordSuccess(const cmsis_nn_dims& filter_dims) {
++  ++g_balas_conv_diag[kBalasConvDiagCmsisSuccess];
++  if (BalasConvIs1x1(filter_dims)) {
++    ++g_balas_conv_diag[kBalasConvDiagSuccess1x1];
++  } else if (BalasConvIs3x3(filter_dims)) {
++    ++g_balas_conv_diag[kBalasConvDiagSuccess3x3];
++  }
++}
++
++static void BalasConvDiagRecordFallback(const cmsis_nn_dims& filter_dims) {
++  ++g_balas_conv_diag[kBalasConvDiagFallbackInt8];
++  if (BalasConvIs1x1(filter_dims)) {
++    ++g_balas_conv_diag[kBalasConvDiagFallback1x1];
++  } else if (BalasConvIs3x3(filter_dims)) {
++    ++g_balas_conv_diag[kBalasConvDiagFallback3x3];
++  }
++}
++
+ namespace tflite {
+ namespace {
+ 
+@@ -35,11 +117,20 @@ struct OpData {
+ 
+   // Index to buffer for optimizations if applicable.
+   int buffer_idx;
++
++  void* persistent_scratch;
++  int persistent_scratch_size;
+ };
+ 
+ void* Init(TfLiteContext* context, const char* buffer, size_t length) {
+   TFLITE_DCHECK(context->AllocatePersistentBuffer != nullptr);
+-  return context->AllocatePersistentBuffer(context, sizeof(OpData));
++  OpData* data =
++      static_cast<OpData*>(context->AllocatePersistentBuffer(context, sizeof(OpData)));
++  if (data != nullptr) {
++    *data = {};
++    data->buffer_idx = -1;
++  }
++  return data;
+ }
+ 
+ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
+@@ -108,7 +199,7 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
    input_dims.c = input->dims->data[3];
  
    cmsis_nn_dims filter_dims;
@@ -19,7 +134,22 @@ index be93e91..ff30604 100644
    filter_dims.h = filter->dims->data[1];
    filter_dims.w = filter->dims->data[2];
    filter_dims.c = filter->dims->data[3];
-@@ -279,7 +280,7 @@ TfLiteStatus EvalQuantizedPerChannel(TfLiteContext* context, TfLiteNode* node,
+@@ -164,8 +255,14 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
+     if (buf_size > 0) {
+       TF_LITE_ENSURE_STATUS(context->RequestScratchBufferInArena(
+           context, buf_size, &data->buffer_idx));
++      data->persistent_scratch =
++          context->AllocatePersistentBuffer(context, buf_size);
++      data->persistent_scratch_size = buf_size;
++      TF_LITE_ENSURE(context, data->persistent_scratch != nullptr);
+     } else {
+       data->buffer_idx = -1;
++      data->persistent_scratch = nullptr;
++      data->persistent_scratch_size = 0;
+     }
+   }
+ 
+@@ -279,7 +376,7 @@ TfLiteStatus EvalQuantizedPerChannel(TfLiteContext* context, TfLiteNode* node,
    input_dims.c = input->dims->data[3];
  
    cmsis_nn_dims filter_dims;
@@ -28,7 +158,20 @@ index be93e91..ff30604 100644
    filter_dims.h = filter->dims->data[1];
    filter_dims.w = filter->dims->data[2];
    filter_dims.c = filter->dims->data[3];
-@@ -309,15 +310,32 @@ TfLiteStatus EvalQuantizedPerChannel(TfLiteContext* context, TfLiteNode* node,
+@@ -302,23 +399,73 @@ TfLiteStatus EvalQuantizedPerChannel(TfLiteContext* context, TfLiteNode* node,
+   ctx.size = 0;
+ 
+   if (data.buffer_idx > -1) {
++    ++g_balas_conv_diag[kBalasConvDiagBufferIdxValid];
++    g_balas_conv_diag[kBalasConvDiagLastBufferIdx] =
++        static_cast<uint32_t>(data.buffer_idx);
+     ctx.buf = context->GetScratchBuffer(context, data.buffer_idx);
++    if (ctx.buf != nullptr) {
++      ++g_balas_conv_diag[kBalasConvDiagArenaScratch];
++    }
+     // Note: ctx.size is currently not used in cmsis_nn.
+     // The buffer should be allocated in the prepare function through
+     // the corresponding arm_convolve_wrapper_[type]_get_buffer_size
    }
  
    // arm_convolve_wrapper_[type] dispatches the optimized kernel accordingly
@@ -43,14 +186,39 @@ index be93e91..ff30604 100644
 -      ARM_CMSIS_NN_SUCCESS);
 +  // with the parameters passed. Some valid TFLM Conv2D shapes are not accepted
 +  // by CMSIS-NN; keep the model functional by falling back to reference INT8.
++  BalasConvDiagRecordCall(filter_dims, ctx);
++  cmsis_nn_context active_ctx = ctx;
++  if (active_ctx.buf == nullptr && type == kTfLiteInt8 &&
++      !BalasConvIs1x1(filter_dims)) {
++    const int32_t required_scratch =
++        arm_convolve_s8_get_buffer_size(&input_dims, &filter_dims);
++    g_balas_conv_diag[kBalasConvDiagLastRequiredScratch] =
++        static_cast<uint32_t>(required_scratch);
++    if (required_scratch >
++        static_cast<int32_t>(g_balas_conv_diag[kBalasConvDiagMaxRequiredScratch])) {
++      g_balas_conv_diag[kBalasConvDiagMaxRequiredScratch] =
++          static_cast<uint32_t>(required_scratch);
++    }
++    if (data.persistent_scratch != nullptr && required_scratch > 0 &&
++        required_scratch <= data.persistent_scratch_size) {
++      active_ctx.buf = data.persistent_scratch;
++      active_ctx.size = required_scratch;
++      ++g_balas_conv_diag[kBalasConvDiagPersistentScratch];
++    } else {
++      ++g_balas_conv_diag[kBalasConvDiagScratchTooSmall];
++    }
++  }
 +  const arm_cmsis_nn_status status = convolve_wrapper(
-+      &ctx, &conv_params, &quant_params, &input_dims,
++      &active_ctx, &conv_params, &quant_params, &input_dims,
 +      tflite::micro::GetTensorData<ActType>(input), &filter_dims,
 +      tflite::micro::GetTensorData<int8_t>(filter), &bias_dims,
 +      tflite::micro::GetOptionalTensorData<BiasType>(bias), &output_dims,
 +      tflite::micro::GetTensorData<ActType>(output), type);
++  g_balas_conv_diag[kBalasConvDiagLastStatus] =
++      static_cast<uint32_t>(status);
 +  if (status != ARM_CMSIS_NN_SUCCESS) {
 +    if (type == kTfLiteInt8) {
++      BalasConvDiagRecordFallback(filter_dims);
 +      reference_integer_ops::ConvPerChannel(
 +          ConvParamsQuantized(params, data.reference_op_data),
 +          data.reference_op_data.per_channel_output_multiplier,
@@ -65,8 +233,11 @@ index be93e91..ff30604 100644
 +          tflite::micro::GetTensorData<int8_t>(output));
 +      return kTfLiteOk;
 +    }
++    ++g_balas_conv_diag[kBalasConvDiagError];
 +    return kTfLiteError;
 +  }
  
++  BalasConvDiagRecordSuccess(filter_dims);
    return kTfLiteOk;
  }
+ 

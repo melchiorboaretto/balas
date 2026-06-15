@@ -16,7 +16,7 @@ import numpy as np
 import tensorflow as tf
 
 from python_scripts.arena_estimator.estimator import estimate_tensor_arena_size
-from python_scripts.code_generator.generator import generate_cpp_code
+from python_scripts.code_generator.generator import generate_cpp_code, generate_stm32_tflm_code
 from python_scripts.config import default_serial_port, repo_root
 from python_scripts.deployer.deployer import compile_cpp_project, deploy_to_mcu
 from python_scripts.experiments.common import (
@@ -241,7 +241,10 @@ def run_entry(
             attempts += 1
             if not use_stm32_edgeai:
                 codegen_start = time.perf_counter_ns()
-                generate_cpp_code(str(model_path), current_arena)
+                if target == "stm32" and model_backend == "tflm":
+                    generate_stm32_tflm_code(str(model_path), current_arena)
+                else:
+                    generate_cpp_code(str(model_path), current_arena)
                 cpp_codegen_time_ms += (time.perf_counter_ns() - codegen_start) / 1_000_000.0
 
             if not skip_compile:
@@ -253,6 +256,8 @@ def run_entry(
                 deploy_start = time.perf_counter_ns()
                 deploy_to_mcu()
                 deploy_time_ms += (time.perf_counter_ns() - deploy_start) / 1_000_000.0
+                if target == "stm32":
+                    time.sleep(float(os.environ.get("BALAS_STM32_POST_DEPLOY_DELAY_SEC", "3")))
 
             try:
                 (

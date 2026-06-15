@@ -35,7 +35,15 @@ int main(void)
     }
 #endif
 
-    MyModel model;
+    // Determine the I/O sizes from a temporary model instance. The interpreter
+    // is then rebuilt per inference (see loop below).
+    int input_size_bytes;
+    int output_size_bytes;
+    {
+        MyModel sizing_model;
+        input_size_bytes = sizing_model.get_input_size();
+        output_size_bytes = sizing_model.get_output_size();
+    }
 
 #if defined(BALAS_STM32_MODEL_BOOT_MARKER)
     const uint8_t model_marker = 'M';
@@ -45,8 +53,8 @@ int main(void)
     }
 #endif
 
-    ModelInput input(model.get_input_size());
-    ModelOutput output(model.get_output_size());
+    ModelInput input(input_size_bytes);
+    ModelOutput output(output_size_bytes);
 
 #if defined(BALAS_STM32_MODEL_BOOT_MARKER)
     serial_write(reinterpret_cast<uint8_t *>(&input.size), sizeof(input.size));
@@ -59,6 +67,13 @@ int main(void)
         const uint8_t read_marker = 'R';
         serial_write(const_cast<uint8_t *>(&read_marker), 1U);
 #endif
+        // Rebuild the interpreter for every inference. This TFLM build corrupts
+        // the persistent input-tensor metadata in the arena during Invoke(), so
+        // a second Invoke() on the same interpreter would fault. Reconstructing
+        // gives a clean arena each time, matching the verified "reset between
+        // samples" behavior. AllocateTensors() runs outside start/stop_timing,
+        // so it does not affect the measured inference latency.
+        MyModel model;
         start_timing();
         model.run_inference(input, output);
 #if defined(BALAS_STM32_MODEL_BOOT_MARKER)

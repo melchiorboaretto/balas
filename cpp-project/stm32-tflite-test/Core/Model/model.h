@@ -29,7 +29,7 @@ public:
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
-#define TENSOR_ARENA_SIZE 57344
+#define TENSOR_ARENA_SIZE 81920
 #define N_OPS 9
 
 class MyModel {

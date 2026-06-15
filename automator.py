@@ -1,9 +1,10 @@
 import argparse
 import os
 import re
+import time
 from pathlib import Path
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-from python_scripts.code_generator.generator import generate_cpp_code
+from python_scripts.code_generator.generator import generate_cpp_code, generate_stm32_tflm_code
 from python_scripts.deployer.deployer import compile_cpp_project, deploy_to_mcu
 from python_scripts.arena_estimator.estimator import estimate_tensor_arena_size
 from python_scripts.profiler.profiler import send_profiling_inputs
@@ -67,6 +68,10 @@ if __name__ == "__main__":
     print(f"Number of MACs: {macs}")
     if use_stm32_edgeai:
         print("Skipping C++ code generation for STM32 ST Edge AI backend\n")
+    elif target == "stm32" and stm32_backend == "tflm":
+        print("Generating STM32 TFLM C++ code")
+        generate_stm32_tflm_code(args.model_quant, estimated_arena_size)
+        print("Generating STM32 TFLM C++ code done\n")
     else:
         print("Generating C++ code")
         generate_cpp_code(args.model_quant, estimated_arena_size)
@@ -82,6 +87,8 @@ if __name__ == "__main__":
     else:
         print("Deploying to MCU")
         deploy_to_mcu()
+        if target == "stm32":
+            time.sleep(float(os.environ.get("BALAS_STM32_POST_DEPLOY_DELAY_SEC", "3")))
         print("Deploy done\n")
     print("Sending profiling input data")
     inference_times = send_profiling_inputs(args.serial_device, args.profiling_dataset)

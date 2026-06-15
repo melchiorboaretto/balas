@@ -2,12 +2,15 @@
 
 #include <cstdint>
 
+#include "main.h"
 #include "model_data.h"
 #include "quantization.h"
-
-#if defined(BALAS_STM32_MODEL_BOOT_MARKER)
 #include "serial_io.h"
-#endif
+
+extern "C" {
+void balas_tflm_conv_diag_reset(void);
+void balas_tflm_conv_diag_read(uint32_t *out, int out_count);
+}
 
 #if defined(__GNUC__)
 #define BALAS_ALIGNED(bytes) __attribute__((aligned(bytes)))
@@ -32,15 +35,17 @@ MyModel::MyModel()
         }
     }
 
-    resolver.AddConv2D();
-    resolver.AddAdd();
-    resolver.AddAveragePool2D();
-    resolver.AddShape();
-    resolver.AddStridedSlice();
-    resolver.AddPack();
-    resolver.AddReshape();
-    resolver.AddFullyConnected();
-    resolver.AddSoftmax();
+// BALAS_GENERATED_RESOLVER_OPS_BEGIN
+	resolver.AddConv2D();
+	resolver.AddAdd();
+	resolver.AddAveragePool2D();
+	resolver.AddShape();
+	resolver.AddStridedSlice();
+	resolver.AddPack();
+	resolver.AddReshape();
+	resolver.AddFullyConnected();
+	resolver.AddSoftmax();
+// BALAS_GENERATED_RESOLVER_OPS_END
 
     if (interpreter.AllocateTensors() != kTfLiteOk) {
         while (1) {
@@ -63,13 +68,22 @@ void MyModel::run_inference(ModelInput &input, ModelOutput &output)
 #if defined(BALAS_STM32_MODEL_BOOT_MARKER)
     uint8_t invoke_marker = 'G';
     serial_write(&invoke_marker, 1U);
+    balas_tflm_conv_diag_reset();
 #endif
     if (interpreter.Invoke() != kTfLiteOk) {
-        while (1) {
-        }
+        int32_t error_sentinel = -1;
+        serial_write(reinterpret_cast<uint8_t *>(&error_sentinel), sizeof(error_sentinel));
+        HAL_Delay(10);
+        NVIC_SystemReset();
     }
 
 #if defined(BALAS_STM32_MODEL_BOOT_MARKER)
+    uint32_t conv_diag[19];
+    balas_tflm_conv_diag_read(conv_diag, 19);
+    uint8_t conv_marker = 'C';
+    serial_write(&conv_marker, 1U);
+    serial_write(reinterpret_cast<uint8_t *>(conv_diag), sizeof(conv_diag));
+
     uint8_t done_marker = 'D';
     serial_write(&done_marker, 1U);
 #endif

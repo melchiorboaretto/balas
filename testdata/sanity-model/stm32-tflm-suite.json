@@ -1,0 +1,19 @@
+{
+  "suite_name": "stm32-tflm-sanity",
+  "defaults": {
+    "target": "stm32",
+    "model_backend": "tflm",
+    "serial_device": "/dev/ttyACM0",
+    "skip_compile": false,
+    "skip_deploy": false
+  },
+  "entries": [
+    {
+      "family": "image-classification",
+      "name": "sanity-recovered-tflm-cmsis-nn",
+      "model_path": "model_quant.tflite",
+      "profiling_dataset": "profiling_dataset",
+      "arena_size": 81920
+    }
+  ]
+}
