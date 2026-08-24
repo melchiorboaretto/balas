@@ -1,0 +1,19 @@
+{
+  "suite_name": "nordic-tflm-sanity",
+  "defaults": {
+    "target": "nordic",
+    "model_backend": "tflm",
+    "serial_device": "/dev/ttyACM0",
+    "skip_compile": false,
+    "skip_deploy": false
+  },
+  "entries": [
+    {
+      "family": "image-classification",
+      "name": "sanity-recovered-nrf52840-cmsis-nn",
+      "model_path": "model_quant.tflite",
+      "profiling_dataset": "profiling_dataset",
+      "arena_size": 81920
+    }
+  ]
+}

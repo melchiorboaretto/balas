@@ -33,9 +33,68 @@ if [[ "$BALAS_TARGET" == "stm32" ]]; then
     exit 0
 fi
 
+if [[ "$BALAS_TARGET" == "nordic" ]]; then
+    NORDIC_PROJECT_DIR="${NORDIC_PROJECT_DIR:-$REPO_ROOT/cpp-project/nrf52840-tflite-test}"
+    NORDIC_BUILD_DIR="${NORDIC_BUILD_DIR:-$NORDIC_PROJECT_DIR/build}"
+    NORDIC_BOARD="${NORDIC_BOARD:-nrf52840dk/nrf52840}"
+    NORDIC_NCS_VERSION="${NORDIC_NCS_VERSION:-v3.4.0}"
+    NORDIC_NCS_DIR="${NORDIC_NCS_DIR:-$HOME/ncs/$NORDIC_NCS_VERSION}"
+    NORDIC_TFLM_MODULE_DIR="${NORDIC_TFLM_MODULE_DIR:-$NORDIC_NCS_DIR/optional/modules/lib/tflite-micro}"
+    BALAS_NORDIC_ENABLE_MODEL="${BALAS_NORDIC_ENABLE_MODEL:-OFF}"
+    NRFUTIL_BIN="${NRFUTIL_BIN:-nrfutil}"
+
+    if ! command -v "$NRFUTIL_BIN" >/dev/null 2>&1; then
+        echo "nRF Util not found: $NRFUTIL_BIN" >&2
+        echo "Install nRF Util and its sdk-manager command, or set NRFUTIL_BIN." >&2
+        exit 1
+    fi
+    if [[ ! -f "$NORDIC_PROJECT_DIR/CMakeLists.txt" ]]; then
+        echo "Nordic project not found: $NORDIC_PROJECT_DIR" >&2
+        exit 1
+    fi
+    nordic_sdk_list="$("$NRFUTIL_BIN" sdk-manager list)"
+    if ! grep -Fq "$NORDIC_NCS_VERSION" <<< "$nordic_sdk_list"; then
+        echo "nRF Connect SDK $NORDIC_NCS_VERSION is not installed." >&2
+        echo "Install it with: $NRFUTIL_BIN sdk-manager install $NORDIC_NCS_VERSION" >&2
+        exit 1
+    fi
+    if [[ ! -f "$NORDIC_NCS_DIR/.west/config" ]]; then
+        echo "nRF Connect SDK workspace not found: $NORDIC_NCS_DIR" >&2
+        echo "Set NORDIC_NCS_DIR to the installed SDK workspace." >&2
+        exit 1
+    fi
+
+    nordic_cmake_args=(
+        "-DBALAS_NORDIC_ENABLE_MODEL=$BALAS_NORDIC_ENABLE_MODEL"
+        "-DCMAKE_BUILD_TYPE=$BUILD_CONFIG"
+    )
+    if [[ "$BALAS_NORDIC_ENABLE_MODEL" == "ON" || "$BALAS_NORDIC_ENABLE_MODEL" == "1" || "$BALAS_NORDIC_ENABLE_MODEL" == "true" ]]; then
+        if [[ ! -f "$NORDIC_TFLM_MODULE_DIR/zephyr/module.yml" ]]; then
+            echo "TensorFlow Lite Micro Zephyr module not found: $NORDIC_TFLM_MODULE_DIR" >&2
+            echo "Install the module revision documented in docs/024_port-nrf52840-dk.md" >&2
+            echo "or set NORDIC_TFLM_MODULE_DIR." >&2
+            exit 1
+        fi
+        nordic_cmake_args+=(
+            "-DEXTRA_CONF_FILE=$NORDIC_PROJECT_DIR/model.conf"
+            "-DZEPHYR_EXTRA_MODULES=$NORDIC_TFLM_MODULE_DIR"
+        )
+    fi
+
+    "$NRFUTIL_BIN" sdk-manager toolchain launch \
+      --ncs-version "$NORDIC_NCS_VERSION" \
+      --chdir "$NORDIC_NCS_DIR" \
+      -- west build --no-sysbuild --pristine=always \
+      -b "$NORDIC_BOARD" \
+      -d "$NORDIC_BUILD_DIR" \
+      "$NORDIC_PROJECT_DIR" \
+      -- "${nordic_cmake_args[@]}"
+    exit 0
+fi
+
 if [[ "$BALAS_TARGET" != "nxp" ]]; then
     echo "Unsupported BALAS_TARGET: $BALAS_TARGET" >&2
-    echo "Use BALAS_TARGET=nxp or BALAS_TARGET=stm32." >&2
+    echo "Use BALAS_TARGET=nxp, BALAS_TARGET=stm32, or BALAS_TARGET=nordic." >&2
     exit 1
 fi
 

@@ -1,12 +1,24 @@
 import struct
 import argparse
 import os
+import time
 import numpy as np
 import serial
 
 from python_scripts.config import default_serial_port
 
 DEFAULT_SERIAL_TIMEOUT_SEC = float(os.environ.get("BALAS_SERIAL_TIMEOUT_SEC", "60"))
+
+
+def configure_nordic_vcom(ser: serial.Serial) -> None:
+    """Assert DTR so the nRF52840-DK interface MCU drives its VCOM pins."""
+    if os.environ.get("BALAS_TARGET") != "nordic":
+        return
+    ser.dtr = False
+    time.sleep(0.1)
+    ser.dtr = True
+    time.sleep(0.5)
+    ser.reset_input_buffer()
 
 def load_bin_dir_as_f32_list(dir_path):
     """
@@ -41,9 +53,16 @@ def send_array_and_get_int(port_name, array: np.ndarray) -> int:
         raise ValueError("Array must be of dtype float32")
 
     # Open serial port
-    with serial.Serial(port=port_name, baudrate=115200, timeout=DEFAULT_SERIAL_TIMEOUT_SEC) as ser:
+    with serial.Serial(
+        port=port_name,
+        baudrate=115200,
+        timeout=DEFAULT_SERIAL_TIMEOUT_SEC,
+        rtscts=os.environ.get("BALAS_TARGET") == "nordic",
+    ) as ser:
+        configure_nordic_vcom(ser)
         # Send the array as raw bytes
         ser.write(array.tobytes())
+        ser.flush()
 
         # Read 4 bytes for signed int32
         resp_bytes = ser.read(4)
@@ -86,9 +105,16 @@ def send_random_input_and_get_result(model_path: str, serial_port: str) -> int:
 
     print(f"Sending {input_shape} float values. {len(payload)} bytes")
     # Open serial
-    with serial.Serial(serial_port, baudrate=115200, timeout=DEFAULT_SERIAL_TIMEOUT_SEC) as ser:
+    with serial.Serial(
+        serial_port,
+        baudrate=115200,
+        timeout=DEFAULT_SERIAL_TIMEOUT_SEC,
+        rtscts=os.environ.get("BALAS_TARGET") == "nordic",
+    ) as ser:
+        configure_nordic_vcom(ser)
         # Send payload
         ser.write(payload)
+        ser.flush()
 
         # Wait for 1 integer (4 bytes, little-endian)
         resp = ser.read(4)

@@ -11,6 +11,7 @@ from python_scripts.file_utils import find_and_replace, copy_file, replace_line
 
 NXP_MODEL_DIR = Path("cpp-project/tflite-test/model")
 STM32_MODEL_DIR = Path("cpp-project/stm32-tflite-test/Core/Model")
+NORDIC_MODEL_DIR = Path("cpp-project/nrf52840-tflite-test/Model")
 
 def analyze_model(model_file):
     interpreter = tf.lite.Interpreter(model_path=model_file)
@@ -123,5 +124,14 @@ def generate_stm32_tflm_code(model_file, tensor_arena_size):
         model_file,
         tensor_arena_size,
         model_dir=STM32_MODEL_DIR,
+        copy_templates=False,
+    )
+
+
+def generate_nordic_tflm_code(model_file, tensor_arena_size):
+    generate_cpp_code(
+        model_file,
+        tensor_arena_size,
+        model_dir=NORDIC_MODEL_DIR,
         copy_templates=False,
     )

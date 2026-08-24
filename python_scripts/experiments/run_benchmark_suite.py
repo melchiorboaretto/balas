@@ -16,7 +16,11 @@ import numpy as np
 import tensorflow as tf
 
 from python_scripts.arena_estimator.estimator import estimate_tensor_arena_size
-from python_scripts.code_generator.generator import generate_cpp_code, generate_stm32_tflm_code
+from python_scripts.code_generator.generator import (
+    generate_cpp_code,
+    generate_nordic_tflm_code,
+    generate_stm32_tflm_code,
+)
 from python_scripts.config import default_serial_port, repo_root
 from python_scripts.deployer.deployer import compile_cpp_project, deploy_to_mcu
 from python_scripts.experiments.common import (
@@ -79,6 +83,8 @@ def parse_stm32_edgeai_activation_size() -> int:
 def resolve_target_config(entry: dict, default_options: dict) -> tuple[str, str, bool]:
     target = entry.get("target") or default_options["target"]
     model_backend = entry.get("model_backend") or default_options["model_backend"]
+    if target == "nordic" and model_backend != "tflm":
+        raise ValueError("The Nordic target currently supports only the tflm backend.")
     use_stm32_edgeai = target == "stm32" and model_backend == "stedgeai"
     return target, model_backend, use_stm32_edgeai
 
@@ -179,6 +185,9 @@ def run_entry(
     if target == "stm32":
         os.environ.setdefault("BALAS_STM32_ENABLE_MODEL", "ON")
         os.environ["BALAS_STM32_MODEL_BACKEND"] = model_backend
+    elif target == "nordic":
+        os.environ.setdefault("BALAS_NORDIC_ENABLE_MODEL", "ON")
+        os.environ["BALAS_NORDIC_MODEL_BACKEND"] = model_backend
     serial_device = entry.get("serial_device") or default_options["serial_device"]
     skip_compile = bool(entry.get("skip_compile", default_options["skip_compile"]))
     skip_deploy = bool(entry.get("skip_deploy", default_options["skip_deploy"]))
@@ -243,6 +252,8 @@ def run_entry(
                 codegen_start = time.perf_counter_ns()
                 if target == "stm32" and model_backend == "tflm":
                     generate_stm32_tflm_code(str(model_path), current_arena)
+                elif target == "nordic" and model_backend == "tflm":
+                    generate_nordic_tflm_code(str(model_path), current_arena)
                 else:
                     generate_cpp_code(str(model_path), current_arena)
                 cpp_codegen_time_ms += (time.perf_counter_ns() - codegen_start) / 1_000_000.0
@@ -258,6 +269,8 @@ def run_entry(
                 deploy_time_ms += (time.perf_counter_ns() - deploy_start) / 1_000_000.0
                 if target == "stm32":
                     time.sleep(float(os.environ.get("BALAS_STM32_POST_DEPLOY_DELAY_SEC", "3")))
+                elif target == "nordic":
+                    time.sleep(float(os.environ.get("BALAS_NORDIC_POST_DEPLOY_DELAY_SEC", "2")))
 
             try:
                 (
@@ -371,9 +384,11 @@ def main() -> None:
         "skip_compile": defaults.get("skip_compile", args.skip_compile),
         "skip_deploy": defaults.get("skip_deploy", args.skip_deploy),
         "target": defaults.get("target", os.environ.get("BALAS_TARGET", "nxp")),
-        "model_backend": defaults.get(
-            "model_backend",
-            os.environ.get("BALAS_STM32_MODEL_BACKEND", "stedgeai"),
+        "model_backend": defaults.get("model_backend")
+        or (
+            os.environ.get("BALAS_NORDIC_MODEL_BACKEND", "tflm")
+            if defaults.get("target", os.environ.get("BALAS_TARGET", "nxp")) == "nordic"
+            else os.environ.get("BALAS_STM32_MODEL_BACKEND", "stedgeai")
         ),
     }
 

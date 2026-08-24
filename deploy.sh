@@ -29,9 +29,39 @@ if [[ "$BALAS_TARGET" == "stm32" ]]; then
     exit 0
 fi
 
+if [[ "$BALAS_TARGET" == "nordic" ]]; then
+    NORDIC_PROJECT_DIR="${NORDIC_PROJECT_DIR:-$REPO_ROOT/cpp-project/nrf52840-tflite-test}"
+    NORDIC_BUILD_DIR="${NORDIC_BUILD_DIR:-$NORDIC_PROJECT_DIR/build}"
+    NORDIC_FIRMWARE_FILE="${NORDIC_FIRMWARE_FILE:-$NORDIC_BUILD_DIR/zephyr/zephyr.hex}"
+    NORDIC_PROBE_SERIAL="${NORDIC_PROBE_SERIAL:-}"
+    NRFUTIL_BIN="${NRFUTIL_BIN:-nrfutil}"
+
+    if ! command -v "$NRFUTIL_BIN" >/dev/null 2>&1; then
+        echo "nRF Util not found: $NRFUTIL_BIN" >&2
+        exit 1
+    fi
+    if [[ ! -f "$NORDIC_FIRMWARE_FILE" ]]; then
+        echo "Nordic firmware image not found: $NORDIC_FIRMWARE_FILE" >&2
+        echo "Build first with BALAS_TARGET=nordic ./compile.sh or set NORDIC_FIRMWARE_FILE." >&2
+        exit 1
+    fi
+
+    nordic_program_cmd=(
+        "$NRFUTIL_BIN" device program
+        --firmware "$NORDIC_FIRMWARE_FILE"
+        --family nrf52
+        --options chip_erase_mode=ERASE_RANGES_TOUCHED_BY_FIRMWARE,verify=VERIFY_READ,reset=RESET_SYSTEM
+    )
+    if [[ -n "$NORDIC_PROBE_SERIAL" ]]; then
+        nordic_program_cmd+=(--serial-number "$NORDIC_PROBE_SERIAL")
+    fi
+    "${nordic_program_cmd[@]}"
+    exit 0
+fi
+
 if [[ "$BALAS_TARGET" != "nxp" ]]; then
     echo "Unsupported BALAS_TARGET: $BALAS_TARGET" >&2
-    echo "Use BALAS_TARGET=nxp or BALAS_TARGET=stm32." >&2
+    echo "Use BALAS_TARGET=nxp, BALAS_TARGET=stm32, or BALAS_TARGET=nordic." >&2
     exit 1
 fi
 

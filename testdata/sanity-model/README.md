@@ -14,6 +14,7 @@ testdata/sanity-model/
   manifest.json
   model_quant.tflite
   stm32-edgeai-suite.json
+  nordic-tflm-suite.json
   profiling_dataset/
     sample_001.bin
     ...
@@ -34,6 +35,10 @@ testdata/sanity-model/
 - `stm32-edgeai-suite.json`
   Manifesto minimo para rodar o mesmo fixture na `NUCLEO-H723ZG` com
   `BALAS_TARGET=stm32` e backend `stedgeai`.
+
+- `nordic-tflm-suite.json`
+  Executa o mesmo fixture na nRF52840-DK com `BALAS_TARGET=nordic`, TFLM e
+  kernels CMSIS-NN.
 
 ## O que este fixture representa
 
