@@ -105,6 +105,7 @@ cmd=(
     -CoreIndex="$CORE_INDEX"
     --flash-driver=
     -x "$BUILD_DIR"
+    -x "$PACKAGE_SUPPORT_DIR" # ??
     --flash-hashing
 )
 

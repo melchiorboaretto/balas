@@ -25,3 +25,5 @@ assets/*.zip
 assets/*.crdownload
 cpp-project/stm32-tflite-test/build*/
 cpp-project/nrf52840-tflite-test/build*/
+
+test.sh
