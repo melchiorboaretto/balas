@@ -1,0 +1,18 @@
+[experiment]
+name = "continuous_dse_image_classification"
+base_seed = 1000
+profiling_samples = 10
+output_csv = "artifacts/continuous_database.csv"
+output_map = "artifacts/hyperparameters_map.json"
+
+[hyperparameters.grid]
+channels_1 = [8, 16, 24, 32, 48, 64]
+kernel_1 = [3, 5]
+channels_2 = [16, 32, 48, 64]
+kernel_2 = [3, 5]
+channels_3 = [32, 64, 96, 128]
+kernel_3 = [2, 3]
+
+[model_specs]
+input_shape = [32, 32, 3]
+num_classes = 10
