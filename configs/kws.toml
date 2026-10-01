@@ -1,0 +1,18 @@
+[experiment]
+name = "dse_kws"
+benchmark = "keyword_spotting"
+base_seed = 72
+profiling_samples = 10
+output_csv = "artifacts/kws_database.csv"
+output_map = "artifacts/kws_map.json"
+
+[hyperparameters.grid]
+first_conv_channels = [8, 12, 16, 24, 32, 48, 64]
+first_kernel_row = [5, 10, 15, 20]
+first_kernel_col = [2, 4, 8]
+ds_channels = [16, 24, 32, 48, 64, 96, 128]
+ds_kernel_size = [3, 5]
+
+[model_specs]
+input_shape = [49, 10, 1]
+num_classes = 12

@@ -5,7 +5,6 @@ import numpy as np
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 import tensorflow as tf
 
-
 def build_and_quantize_model(
     config: dict,
     variant_name: str,
@@ -16,9 +15,10 @@ def build_and_quantize_model(
     """Constrói o modelo Keras de Visual Wake Words (MobileNetV1 / Depthwise Separable) e quantiza para .tflite int8."""
     tf.keras.backend.clear_session()
 
+    # Lê as chaves exatas do vww.toml (initial_channels, channels_multiplier, kernel_size)
     initial_channels = int(config.get("initial_channels", 8))
     multiplier = float(config.get("channels_multiplier", 1.5))
-    kernel_size = int(config.get("kernel", 3))
+    kernel_size = int(config.get("kernel_size") or config.get("kernel", 3))
 
     inputs = tf.keras.Input(shape=input_shape, name="input")
 
