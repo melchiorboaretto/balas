@@ -1,4 +1,3 @@
-
 import os
 from pathlib import Path
 import numpy as np
@@ -11,24 +10,38 @@ def build_and_quantize_model(
     config: dict,
     variant_name: str,
     tmp_dir: Path,
-    input_shape: tuple = (32, 32, 3),
-    num_classes: int = 10,
+    input_shape: tuple = (96, 96, 3),
+    num_classes: int = 2,
 ) -> Path:
-    """Constrói o modelo Keras com os hiperparâmetros e quantiza para .tflite int8."""
+    """Constrói o modelo Keras de Visual Wake Words (MobileNetV1 / Depthwise Separable) e quantiza para .tflite int8."""
     tf.keras.backend.clear_session()
 
+    initial_channels = int(config.get("initial_channels", 8))
+    multiplier = float(config.get("channels_multiplier", 1.5))
+    kernel_size = int(config.get("kernel", 3))
+
     inputs = tf.keras.Input(shape=input_shape, name="input")
+
+    # Camada Convolucional Inicial
     x = tf.keras.layers.Conv2D(
-        config["channels_1"], config["kernel_1"], padding="same", activation="relu"
+        initial_channels, kernel_size=3, strides=2, padding="same", activation="relu"
     )(inputs)
-    x = tf.keras.layers.MaxPooling2D(pool_size=2)(x)
-    x = tf.keras.layers.Conv2D(
-        config["channels_2"], config["kernel_2"], padding="same", activation="relu"
+
+    # Bloco Depthwise Separable 1
+    ch1 = int(initial_channels * multiplier)
+    x = tf.keras.layers.DepthwiseConv2D(
+        kernel_size=kernel_size, padding="same", activation="relu"
     )(x)
-    x = tf.keras.layers.MaxPooling2D(pool_size=2)(x)
-    x = tf.keras.layers.Conv2D(
-        config["channels_3"], config["kernel_3"], padding="same", activation="relu"
+    x = tf.keras.layers.Conv2D(ch1, kernel_size=1, padding="same", activation="relu")(x)
+
+    # Bloco Depthwise Separable 2 (Stride 2)
+    ch2 = int(ch1 * multiplier)
+    x = tf.keras.layers.DepthwiseConv2D(
+        kernel_size=kernel_size, strides=2, padding="same", activation="relu"
     )(x)
+    x = tf.keras.layers.Conv2D(ch2, kernel_size=1, padding="same", activation="relu")(x)
+
+    x = tf.keras.layers.GlobalAveragePooling2D()(x)
     outputs = tf.keras.layers.Dense(num_classes, name="logits")(x)
     model = tf.keras.Model(inputs=inputs, outputs=outputs, name=variant_name)
 
