@@ -39,8 +39,15 @@ def build_and_quantize_model(
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
 
     def representative_dataset_gen():
-        for _ in range(20):
-            data = np.random.uniform(0.0, 1.0, size=(1,) + input_shape).astype(np.float32)
+        rng = np.random.default_rng(72)
+
+        for _ in range(100):
+            data = rng.uniform(
+                0.0,
+                1.0,
+                size=(1,) + input_shape,
+            ).astype(np.float32)
+
             yield [data]
 
     converter.representative_dataset = representative_dataset_gen
