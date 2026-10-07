@@ -1,0 +1,16 @@
+[experiment]
+name = "dse_vww"
+benchmark = "visual_wake_words"
+base_seed = 72
+profiling_samples = 10
+output_csv = "artifacts/vww_database.csv"
+output_map = "artifacts/vww_map.json"
+
+[hyperparameters.grid]
+initial_channels = [4, 6, 8, 10, 12, 16, 20, 24, 32]
+channels_multiplier = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+kernel_size = [3, 5]
+
+[model_specs]
+input_shape = [96, 96, 3]
+num_classes = 2

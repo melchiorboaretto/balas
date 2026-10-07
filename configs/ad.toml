@@ -1,0 +1,16 @@
+[experiment]
+name = "dse_ad"
+benchmark = "anomaly_detection"
+base_seed = 72
+profiling_samples = 10
+output_csv = "artifacts/ad_database.csv"
+output_map = "artifacts/ad_map.json"
+
+[hyperparameters.grid]
+large_fc = [128, 160, 192, 224, 256, 288, 320, 384]
+medium_fc = [64, 80, 96, 128, 160, 192, 224, 256]
+small_fc = [8, 12, 16, 24, 32, 48, 64, 96, 128]
+
+[model_specs]
+input_shape = [1, 640]
+num_classes = 640

@@ -104,5 +104,18 @@ if __name__ == "__main__":
         print("Deploy done\n")
     print("Sending profiling input data")
     inference_times = send_profiling_inputs(args.serial_device, args.profiling_dataset)
-    append_inference_report(estimated_arena_size, macs, inference_times, args.report_file)
+
+    # Lê tensão (V) e corrente (mA) das variáveis locais do .balas.env
+    voltage_v = float(os.environ.get("BALAS_VOLTAGE_V", "3.3"))
+    current_ma = float(os.environ.get("BALAS_CURRENT_MA", "8.55"))
+
+    append_inference_report(
+        model_path=args.model_quant,
+        arena_size=estimated_arena_size,
+        macs=macs,
+        inference_times_us=inference_times,
+        report_filepath=args.report_file,
+        voltage_v=voltage_v,
+        current_ma=current_ma
+    )
     print(f"Results saved to {args.report_file}")
