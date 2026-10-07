@@ -119,5 +119,5 @@ if [[ "$MCUX_IMPORT_PROJECT" == "1" || "$MCUX_IMPORT_PROJECT" == "true" ]]; then
       -data "$MCUX_WORKSPACE_DIR" -import "$MCUX_WORKSPACE_DIR/$PROJECT_NAME"
 fi
 
-"$MCUXPRESSO_IDE_BIN" -nosplash -application org.eclipse.cdt.managedbuilder.core.headlessbuild \
+"$MCUXPRESSO_IDE_BIN" -nosplash --launcher.suppressErrors -application org.eclipse.cdt.managedbuilder.core.headlessbuild \
   -data "$MCUX_WORKSPACE_DIR" -build "$PROJECT_NAME/$BUILD_CONFIG"
