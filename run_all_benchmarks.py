@@ -106,6 +106,7 @@ def run_single_benchmark_iteration(
     target: str | None,
     serial_device: str | None,
     profiling_samples: int | None,
+    dry_run: bool = False,
 ) -> int:
     """Invoca run_continuous_experiment.py para um único benchmark e iteration_index."""
     cmd = [
@@ -122,6 +123,8 @@ def run_single_benchmark_iteration(
         cmd.extend(["--serial-device", serial_device])
     if profiling_samples is not None:
         cmd.extend(["--profiling-samples", str(profiling_samples)])
+    if dry_run:
+        cmd.append("--dry-run")
 
     proc = subprocess.run(cmd, cwd=str(REPO_ROOT))
     if proc.returncode in (-2, 130):
@@ -176,6 +179,11 @@ def main():
         type=float,
         default=5.0,
         help="Tempo de espera em segundos antes de tentar novamente uma iteração após erro crítico.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Executa em modo de simulação (host-only), pulando compilação, deploy e serial.",
     )
     args = parser.parse_args()
 
@@ -271,6 +279,7 @@ def main():
                         target=args.target,
                         serial_device=args.serial_device,
                         profiling_samples=args.profiling_samples,
+                        dry_run=args.dry_run,
                     )
 
                     if returncode != 0:
@@ -328,6 +337,9 @@ def main():
             if iterations_since_sync >= args.batch_size:
                 sync_to_results(configs_meta, results_dir)
                 iterations_since_sync = 0
+
+        if iterations_since_sync > 0:
+            sync_to_results(configs_meta, results_dir)
 
     except KeyboardInterrupt:
         print("\n\n🛑 Interrupção pelo usuário (Ctrl+C).")

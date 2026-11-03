@@ -1,0 +1,28 @@
+# ===========================================================================
+# REFERÊNCIA EXATA — DS-CNN (Keyword Spotting)
+# ===========================================================================
+# Topologia: entrada 49x10x1 -> Conv2D(64, (10,4), s=(2,2), BN+ReLU)
+#           -> 4x [DepthwiseConv2D(3x3, BN+ReLU) + Conv2D(64, 1x1, BN+ReLU)]
+#           -> GAP -> Dense(12).
+# MACs esperados: 2.656.768, a contagem exata do DS-CNN de referência
+# do MLPerf Tiny v1.0/v1.1 (Speech Commands v0.02).
+
+[experiment]
+name = "kws_reference"
+benchmark = "keyword_spotting"
+base_seed = 72
+profiling_samples = 10
+output_csv = "artifacts/kws_reference.csv"
+output_map = "artifacts/kws_reference_map.json"
+
+[hyperparameters.grid]
+first_conv_channels = [64]
+first_kernel_row = [10]
+first_kernel_col = [4]
+ds_blocks = [4]
+ds_channels = [64]
+ds_kernel_size = [3]
+
+[model_specs]
+input_shape = [49, 10, 1]
+num_classes = 12

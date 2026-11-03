@@ -1,0 +1,82 @@
+O QUE RODA NA NPU DO MCXN947 - 4 MODELOS MLPERF TINY DO BALAS
+Data: 27/10/2026
+Conversor: eIQ Neutron SDK 3.2.2 (neutron_compiler, --target mcxn94x)
+Arquivos: artifacts/neutron_3.2.2_reference/  (modelos, convertidos, .h e logs)
+
+RESULTADO CONFIRMADO PELO CONVERSOR (nao e mais previsao).
+
+
+1. RESUMO
+---------
+Nos 4 modelos, a rede inteira virou UM unico NeutronGraph (NPU).
+Na CPU sobram so operacoes pequenas na entrada e na saida.
+
+Modelo  Grafo convertido                       Ops convertidos  NeutronGraphs
+KWS     PAD (CPU) -> NeutronGraph -> SOFTMAX (CPU)   18 de 20      1
+VWW     NeutronGraph -> SOFTMAX (CPU)                59 de 60      1
+IC      PAD (CPU) -> NeutronGraph -> SOFTMAX (CPU)   23 de 25      1
+AD      NeutronGraph                                 10 de 10      1
+
+(O conversor conta operadores depois de otimizar o grafo, por isso os
+numeros sao maiores que os do .tflite original.)
+
+Os 3 riscos que o relatorio anterior apontava NAO se confirmaram:
+- FULLY_CONNECTED quantizada por tensor: ACEITA pela NPU (AD inteiro na NPU).
+- ADD do ResNet-8: ACEITO pela NPU (IC nao foi dividido).
+- AVERAGE_POOL_2D 25x5 do KWS: ACEITO pela NPU.
+
+
+2. O QUE FICA NA CPU
+--------------------
+SOFTMAX   KWS (12 valores), VWW (2), IC (10). Sempre na CPU.
+PAD       KWS (entrada 49x10x1 -> 4 canais, 1.960 bytes)
+          IC  (entrada 32x32x3 -> 4 canais, 4.096 bytes)
+          Criado pelo conversor para completar os canais de entrada.
+          O VWW (tambem 3 canais) NAO ganhou PAD.
+AD        Nada.
+
+Tudo o mais vai para a NPU: CONV_2D, DEPTHWISE_CONV_2D, ReLU (embutida),
+AVERAGE_POOL_2D, FULLY_CONNECTED (por tensor) e ADD.
+
+
+3. NUMEROS DO CONVERSOR (estimativas dele, so a parte da NPU)
+-------------------------------------------------------------
+Modelo  MACs         Ciclos NPU   ~ms a 150 MHz   Scratch (RAM)   Pesos+microcodigo
+KWS     2.656.768    467.002      3,1             16.000 B        35.420 B
+VWW     7.489.664    840.837      5,6             55.296 B        227.108 B
+IC      12.501.632   851.115      5,7             49.152 B        81.612 B
+AD      264.192      70.691       0,5             256 B           268.472 B
+
+Os ms sao ciclos / 150 MHz, calculados por mim: o conversor nao sabe o
+clock (mostra "inf ms @ 0 MHz"). E estimativa, nao medicao. Referencia
+real: o DS-CNN-S da NXP (rede quase igual ao KWS) mediu ~3,99 ms na placa.
+
+
+4. COMO A NPU E A CPU DIVIDEM O TRABALHO (para referencia)
+---------------------------------------------------------
+- O conversor junta cada sequencia continua de operadores suportados num
+  no NEUTRON_GRAPH. O resto fica como operador TFLite comum, na CPU.
+- Na placa, o TFLite Micro roda no Cortex-M33 e executa os nos em ordem.
+  No NEUTRON_GRAPH, a CPU dispara a NPU e espera. Nao ha paralelismo.
+- Um operador nao suportado no MEIO do modelo dividiria o grafo em
+  varios NEUTRON_GRAPH. Isso nao aconteceu em nenhum dos 4 modelos.
+
+
+5. LIMITACOES
+-------------
+- Vale para os modelos de referencia. Variantes do DSE (kernel 5x5,
+  kernels iniciais maiores, outras larguras) podem ter outro
+  particionamento: guardar o log do conversor de cada variante medida.
+- Pesos aleatorios: a NPU pode comprimir pesos de forma diferente de
+  pesos treinados (afeta tamanho/latencia, nao o particionamento).
+- A versao do conversor (3.2.2) tem que ser a mesma das bibliotecas da
+  NPU no firmware (MCUXpresso SDK 26.09 = 3.2.2).
+
+
+6. PROXIMOS PASSOS
+------------------
+1) Rodar um modelo convertido na placa (projeto baseado no tflm_kws do
+   SDK), com o resolver: PAD, SOFTMAX e NEUTRON_GRAPH.
+2) Medir o mesmo modelo so na CPU, no mesmo projeto.
+3) Adaptar o BALAS: etapa de conversao, projeto NPU, resolver com
+   NEUTRON_GRAPH e coluna backend (cpu/npu) no CSV.

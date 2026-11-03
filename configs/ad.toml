@@ -7,9 +7,12 @@ output_csv = "artifacts/ad_database.csv"
 output_map = "artifacts/ad_map.json"
 
 [hyperparameters.grid]
-large_fc = [128, 160, 192, 224, 256, 288, 320, 384]
-medium_fc = [64, 80, 96, 128, 160, 192, 224, 256]
-small_fc = [8, 12, 16, 24, 32, 48, 64, 96, 128]
+# Largura das camadas ocultas (MLPerf Tiny referência = 128)
+hidden_units = [32, 64, 96, 128, 160, 192, 256]
+# Largura do afunilamento central / bottleneck (MLPerf Tiny referência = 8)
+bottleneck_units = [4, 8, 12, 16, 24, 32, 48, 64]
+# Profundidade: número de camadas densas no encoder e no decoder (MLPerf Tiny referência = 4)
+num_hidden_layers = [2, 3, 4, 5]
 
 [model_specs]
 input_shape = [1, 640]

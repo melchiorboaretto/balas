@@ -1,0 +1,48 @@
+Converting model with the following options:
+  Input  = kws_reference.tflite
+  Output = kws_reference_npu.tflite
+  Target = mcxn94x
+========================================================================================================================
+Statistics for NeutronGraph "subgraph_012":
+  Operators:
+    Number of Neutron operators = 11
+    Number of builtin operators = 18
+  Memory:
+    Inputs        = 1,960 (bytes)
+    Microcode     = 1,688 (bytes)
+    Weights       = 33,732 (bytes)
+    Kernels       = 0 (bytes)
+    Outputs       = 12 (bytes)
+    Scratch       = 16,000 (bytes) (Allocation efficiency: 1)
+    Total data    = 17,972 (bytes) (Inputs + Outputs + Scratch)
+    Total weights = 35,420 (bytes) (Microcode + Weights + Kernels)
+    Total size    = 53,392 (bytes) (All)
+  Latency:
+    Cycle estimation   = 467,002 (cycles)
+    Latency estimation = inf (ms) (@ 0.000 MHz)
+========================================================================================================================
+Overall statistics for graph "main":
+  Operators:
+    Number of operators after import    = 12
+    Number of operators after optimize  = 20
+    Number of operators after extract   = 3
+      Number of Neutron graphs          = 1
+      Number of operators total         = 20
+      Number of operators converted     = 18
+      Number of operators NOT converted = 2
+    Operator conversion ratio           = 18 / 20 = 0.9
+    Operators converted                 = 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,
+  Memory:
+    Total data    = 17,984 (bytes) (Inputs + Outputs + Intermediate Variable Tensors)
+    Total weights = 35,488 (bytes) (Weights)
+    Total size    = 53,472 (bytes) (All)
+  Latency:
+    Cycle estimation   = 467,002 (cycles) (NPU only)
+    Latency estimation = inf (ms) (@ 0.000 MHz) (NPU only)
+========================================================================================================================
+Conversion time:
+  Optimization = 0.00190532 (seconds)
+  Extraction   = 0.00215398 (seconds)
+  Generation   = 0.00413051 (seconds)
+  Total        = 0.00818982 (seconds)
+========================================================================================================================

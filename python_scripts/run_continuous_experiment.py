@@ -65,6 +65,11 @@ def main():
         default=None,
         help="Quantidade de amostras para testar na serial por modelo.",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Modo de simulação: constrói modelos, quantiza para INT8, calcula Arena e MACs e testa inferência no PC, sem precisar de microcontrolador ou gravação.",
+    )
     args = parser.parse_args()
 
     # 1. Ajusta variável de ambiente para o hardware target, se especificada
@@ -159,26 +164,59 @@ def main():
                 estimated_arena = estimate_tensor_arena_size(str(tflite_path))
                 macs = count_macs(str(tflite_path))
 
-                # PASSO C: Atualiza C++, Compila e faz Deploy
-                hardware.generate_code(str(tflite_path), estimated_arena)
-                hardware.compile()
-                hardware.deploy()
+                if args.dry_run:
+                    # PASSO C & D (DRY-RUN): Executa inferência local no PC via TFLite Interpreter
+                    import tensorflow as tf
 
-                # Atraso essencial de pós-deploy para a MCU reiniciar e estabilizar a LPUART
-                post_deploy_delay = float(os.environ.get("BALAS_NXP_POST_DEPLOY_DELAY_SEC", "3.0"))
-                time.sleep(post_deploy_delay)
+                    interpreter = tf.lite.Interpreter(model_path=str(tflite_path))
+                    interpreter.allocate_tensors()
+                    input_details = interpreter.get_input_details()
 
-                # PASSO D: Transmite amostras via UART e mede as latências individuais
-                durations = []
-                for sample in samples:
-                    dur_us = send_array_and_get_int(dse_cfg["serial_device"], sample)
-                    durations.append(dur_us)
+                    durations = []
+                    for sample in samples:
+                        in_tensor = sample.reshape(input_details[0]["shape"])
+                        if input_details[0]["dtype"] == np.int8:
+                            scale, zero_point = input_details[0]["quantization"]
+                            if scale > 0:
+                                in_tensor = np.clip(
+                                    np.round(in_tensor / scale) + zero_point, -128, 127
+                                ).astype(np.int8)
+                            else:
+                                in_tensor = in_tensor.astype(np.int8)
+                        interpreter.set_tensor(input_details[0]["index"], in_tensor)
+                        t0 = time.perf_counter()
+                        interpreter.invoke()
+                        t1 = time.perf_counter()
+                        durations.append(int((t1 - t0) * 1_000_000))
 
-                avg_us = float(np.mean(durations))
-                std_us = float(np.std(durations))
-                print(
-                    f"   ✅ Sucesso! Arena: {estimated_arena} B | MACs: {macs} | Média MCU: {avg_us:.1f} µs (±{std_us:.1f} µs)"
-                )
+                    avg_us = float(np.mean(durations))
+                    std_us = float(np.std(durations))
+                    print(
+                        f"   🧪 [DRY-RUN] Sucesso no PC! Arena: {estimated_arena} B | MACs: {macs} | Host CPU: {avg_us:.1f} µs (±{std_us:.1f} µs)"
+                    )
+                else:
+                    # PASSO C: Atualiza C++, Compila e faz Deploy
+                    hardware.generate_code(str(tflite_path), estimated_arena)
+                    hardware.compile()
+                    hardware.deploy()
+
+                    # Atraso essencial de pós-deploy para a MCU reiniciar e estabilizar a LPUART
+                    post_deploy_delay = float(
+                        os.environ.get("BALAS_NXP_POST_DEPLOY_DELAY_SEC", "3.0")
+                    )
+                    time.sleep(post_deploy_delay)
+
+                    # PASSO D: Transmite amostras via UART e mede as latências individuais
+                    durations = []
+                    for sample in samples:
+                        dur_us = send_array_and_get_int(dse_cfg["serial_device"], sample)
+                        durations.append(dur_us)
+
+                    avg_us = float(np.mean(durations))
+                    std_us = float(np.std(durations))
+                    print(
+                        f"   ✅ Sucesso! Arena: {estimated_arena} B | MACs: {macs} | Média MCU: {avg_us:.1f} µs (±{std_us:.1f} µs)"
+                    )
 
             except Exception as e:
                 error_msg = str(e)

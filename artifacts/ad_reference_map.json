@@ -1,0 +1,17 @@
+{
+  "7968fa9fd80f9d31": {
+    "hash_id": "7968fa9fd80f9d31",
+    "hyperparameters": [
+      8,
+      128,
+      4
+    ],
+    "variant_name": "bottleneck_units-8_hidden_units-128_num_hidden_layers-4",
+    "config": {
+      "bottleneck_units": 8,
+      "hidden_units": 128,
+      "num_hidden_layers": 4
+    },
+    "iteration_index": 0
+  }
+}

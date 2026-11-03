@@ -1,0 +1,24 @@
+# ===========================================================================
+# REFERÊNCIA EXATA — Deep Autoencoder (Anomaly Detection)
+# ===========================================================================
+# Topologia: entrada 640 -> 4x Dense 128 (BN+ReLU) -> Dense 8 (BN+ReLU)
+#           -> 4x Dense 128 (BN+ReLU) -> Dense 640 (Linear).
+# MACs esperados: 264.192, a contagem exata do Deep Autoencoder de
+# referência do MLPerf Tiny v1.0/v1.1 (ToyADMOS).
+
+[experiment]
+name = "ad_reference"
+benchmark = "anomaly_detection"
+base_seed = 72
+profiling_samples = 10
+output_csv = "artifacts/ad_reference.csv"
+output_map = "artifacts/ad_reference_map.json"
+
+[hyperparameters.grid]
+hidden_units = [128]
+bottleneck_units = [8]
+num_hidden_layers = [4]
+
+[model_specs]
+input_shape = [1, 640]
+num_classes = 640

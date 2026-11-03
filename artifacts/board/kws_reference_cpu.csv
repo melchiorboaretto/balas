@@ -1,0 +1,2 @@
+timestamp,iteration_index,hash_id,variant_name,arena_estimated,macs,inference_us_0,inference_us_1,inference_us_2,inference_us_3,inference_us_4,inference_us_5,inference_us_6,inference_us_7,inference_us_8,inference_us_9,error
+15:54,0,03ac250113bfc5a4,ds_blocks-4_ds_channels-64_ds_kernel_size-3_first_conv_channels-64_first_kernel_col-4_first_kernel_row-10,123230,2656768,56828,56828,56828,56828,56832,56833,56833,56832,56830,56828,

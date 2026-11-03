@@ -1,0 +1,48 @@
+Converting model with the following options:
+  Input  = cifar_10_reference.tflite
+  Output = cifar_10_reference_npu.tflite
+  Target = mcxn94x
+========================================================================================================================
+Statistics for NeutronGraph "subgraph_015":
+  Operators:
+    Number of Neutron operators = 14
+    Number of builtin operators = 23
+  Memory:
+    Inputs        = 4,096 (bytes)
+    Microcode     = 1,912 (bytes)
+    Weights       = 79,700 (bytes)
+    Kernels       = 0 (bytes)
+    Outputs       = 10 (bytes)
+    Scratch       = 49,152 (bytes) (Allocation efficiency: 1)
+    Total data    = 53,258 (bytes) (Inputs + Outputs + Scratch)
+    Total weights = 81,612 (bytes) (Microcode + Weights + Kernels)
+    Total size    = 134,870 (bytes) (All)
+  Latency:
+    Cycle estimation   = 851,115 (cycles)
+    Latency estimation = inf (ms) (@ 0.000 MHz)
+========================================================================================================================
+Overall statistics for graph "main":
+  Operators:
+    Number of operators after import    = 15
+    Number of operators after optimize  = 25
+    Number of operators after extract   = 3
+      Number of Neutron graphs          = 1
+      Number of operators total         = 25
+      Number of operators converted     = 23
+      Number of operators NOT converted = 2
+    Operator conversion ratio           = 23 / 25 = 0.92
+    Operators converted                 = 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,
+  Memory:
+    Total data    = 53,264 (bytes) (Inputs + Outputs + Intermediate Variable Tensors)
+    Total weights = 81,680 (bytes) (Weights)
+    Total size    = 134,944 (bytes) (All)
+  Latency:
+    Cycle estimation   = 851,115 (cycles) (NPU only)
+    Latency estimation = inf (ms) (@ 0.000 MHz) (NPU only)
+========================================================================================================================
+Conversion time:
+  Optimization = 0.00271066 (seconds)
+  Extraction   = 0.00154336 (seconds)
+  Generation   = 0.00607897 (seconds)
+  Total        = 0.010333 (seconds)
+========================================================================================================================

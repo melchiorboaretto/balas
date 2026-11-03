@@ -7,10 +7,16 @@ output_csv = "artifacts/kws_database.csv"
 output_map = "artifacts/kws_map.json"
 
 [hyperparameters.grid]
-first_conv_channels = [8, 12, 16, 24, 32, 48, 64]
-first_kernel_row = [5, 10, 15, 20]
-first_kernel_col = [2, 4, 8]
-ds_channels = [16, 24, 32, 48, 64, 96, 128]
+# Canais da primeira convolução temporal/frequencial (MLPerf Tiny referência = 64)
+first_conv_channels = [16, 24, 32, 48, 64, 80, 96]
+# Dimensões do kernel retangular inicial (MLPerf Tiny referência = 10x4)
+first_kernel_row = [6, 8, 10, 12]
+first_kernel_col = [2, 4, 6]
+# Número de blocos Depthwise Separable (profundidade; MLPerf Tiny referência = 4)
+ds_blocks = [2, 3, 4, 5]
+# Canais dos blocos Depthwise Separable (MLPerf Tiny referência = 64)
+ds_channels = [16, 24, 32, 48, 64, 80, 96, 128]
+# Tamanho do filtro convolucional depthwise (MLPerf Tiny referência = 3)
 ds_kernel_size = [3, 5]
 
 [model_specs]

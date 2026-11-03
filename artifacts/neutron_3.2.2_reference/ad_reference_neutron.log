@@ -1,0 +1,48 @@
+Converting model with the following options:
+  Input  = ad_reference.tflite
+  Output = ad_reference_npu.tflite
+  Target = mcxn94x
+========================================================================================================================
+Statistics for NeutronGraph "subgraph_011":
+  Operators:
+    Number of Neutron operators = 10
+    Number of builtin operators = 10
+  Memory:
+    Inputs        = 640 (bytes)
+    Microcode     = 936 (bytes)
+    Weights       = 267,536 (bytes)
+    Kernels       = 0 (bytes)
+    Outputs       = 640 (bytes)
+    Scratch       = 256 (bytes) (Allocation efficiency: 1)
+    Total data    = 1,536 (bytes) (Inputs + Outputs + Scratch)
+    Total weights = 268,472 (bytes) (Microcode + Weights + Kernels)
+    Total size    = 270,008 (bytes) (All)
+  Latency:
+    Cycle estimation   = 70,691 (cycles)
+    Latency estimation = inf (ms) (@ 0.000 MHz)
+========================================================================================================================
+Overall statistics for graph "main":
+  Operators:
+    Number of operators after import    = 10
+    Number of operators after optimize  = 10
+    Number of operators after extract   = 1
+      Number of Neutron graphs          = 1
+      Number of operators total         = 10
+      Number of operators converted     = 10
+      Number of operators NOT converted = 0
+    Operator conversion ratio           = 10 / 10 = 1
+    Operators converted                 = 0,1,2,3,4,5,6,7,8,9,
+  Memory:
+    Total data    = 1,536 (bytes) (Inputs + Outputs + Intermediate Variable Tensors)
+    Total weights = 268,496 (bytes) (Weights)
+    Total size    = 270,032 (bytes) (All)
+  Latency:
+    Cycle estimation   = 70,691 (cycles) (NPU only)
+    Latency estimation = inf (ms) (@ 0.000 MHz) (NPU only)
+========================================================================================================================
+Conversion time:
+  Optimization = 0.00103382 (seconds)
+  Extraction   = 0.000479275 (seconds)
+  Generation   = 0.00556825 (seconds)
+  Total        = 0.00708135 (seconds)
+========================================================================================================================

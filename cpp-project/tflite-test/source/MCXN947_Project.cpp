@@ -21,10 +21,14 @@ int main(void) {
 
 
 	while (1) {
-	   serial_read((uint8_t*)input.data, input.size);
+	   // O host envia input.size floats (4 bytes cada).
+	   serial_read((uint8_t*)input.data, input.size * sizeof(float));
+	   model.set_input(input);
+	   // Cronometra só a inferência, sem a quantização de entrada/saída.
 	   start_timing();
-	   model.run_inference(input, output);
+	   model.invoke();
 	   int inference_time_us = stop_timing();
+	   model.get_output(output);
 	   serial_write((uint8_t*)&inference_time_us, sizeof(int));
 //	   serial_write((uint8_t*)&arena_size, sizeof(int));
 	}

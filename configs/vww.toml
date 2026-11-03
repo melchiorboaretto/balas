@@ -7,8 +7,11 @@ output_csv = "artifacts/vww_database.csv"
 output_map = "artifacts/vww_map.json"
 
 [hyperparameters.grid]
-initial_channels = [4, 6, 8, 10, 12, 16, 20, 24, 32]
-channels_multiplier = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+# Multiplicador de largura MobileNet (MLPerf Tiny referência = 0.25, gerando filtros base 8/16/32/64/128/256)
+alpha = [0.125, 0.1875, 0.25, 0.3125, 0.375, 0.5]
+# Quantidade de blocos repetidos no estágio central de 128 canais (MLPerf Tiny referência = 5, totalizando 13 blocos)
+middle_blocks = [1, 2, 3, 4, 5]
+# Tamanho do filtro convolucional depthwise (MLPerf Tiny referência = 3)
 kernel_size = [3, 5]
 
 [model_specs]

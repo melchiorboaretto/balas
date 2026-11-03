@@ -1,0 +1,28 @@
+# ===========================================================================
+# TESTE NA PLACA — KWS de referência (DS-CNN), só CPU (FRDM-MCXN947)
+# ===========================================================================
+# Mesmo modelo de configs/kws_reference.toml, mas grava em um CSV separado:
+# os artifacts/*_reference.csv antigos parecem ter sido medidos com --dry-run
+# (no PC), e não devem se misturar com medições feitas na placa.
+# Fica em configs/board_tests/ para não entrar no run_all_benchmarks.py,
+# que só lê a raiz de configs/.
+
+[experiment]
+name = "kws_reference_cpu_board"
+benchmark = "keyword_spotting"
+base_seed = 72
+profiling_samples = 10
+output_csv = "artifacts/board/kws_reference_cpu.csv"
+output_map = "artifacts/board/kws_reference_cpu_map.json"
+
+[hyperparameters.grid]
+first_conv_channels = [64]
+first_kernel_row = [10]
+first_kernel_col = [4]
+ds_blocks = [4]
+ds_channels = [64]
+ds_kernel_size = [3]
+
+[model_specs]
+input_shape = [49, 10, 1]
+num_classes = 12

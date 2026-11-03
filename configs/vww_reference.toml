@@ -1,0 +1,34 @@
+# ===========================================================================
+# REFERÊNCIA EXATA — MobileNetV1 alpha=0.25 (Visual Wake Words)
+# ===========================================================================
+# Topologia: entrada 96x96x3 -> Conv2D(8, 3x3, s=2, BN+ReLU)
+#           -> 13 blocos Depthwise Separable (BN+ReLU):
+#              1: DW(3x3, s=1) -> PW(16)
+#              2: DW(3x3, s=2) -> PW(32)
+#              3: DW(3x3, s=1) -> PW(32)
+#              4: DW(3x3, s=2) -> PW(64)
+#              5: DW(3x3, s=1) -> PW(64)
+#              6: DW(3x3, s=2) -> PW(128)
+#              7-11: 5x [DW(3x3, s=1) -> PW(128)]
+#              12: DW(3x3, s=2) -> PW(256)
+#              13: DW(3x3, s=1) -> PW(256)
+#           -> GAP -> Dense(2).
+# MACs esperados: 7.489.664, a contagem exata da MobileNetV1 96x96 alpha=0.25
+# de referência do MLPerf Tiny v1.0/v1.1 (Person Detection).
+
+[experiment]
+name = "vww_reference"
+benchmark = "visual_wake_words"
+base_seed = 72
+profiling_samples = 10
+output_csv = "artifacts/vww_reference.csv"
+output_map = "artifacts/vww_reference_map.json"
+
+[hyperparameters.grid]
+alpha = [0.25]
+middle_blocks = [5]
+kernel_size = [3]
+
+[model_specs]
+input_shape = [96, 96, 3]
+num_classes = 2

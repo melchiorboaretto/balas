@@ -326,7 +326,9 @@ def build_and_quantize_model(
     # ambos têm 16 canais e kernel 3x3, então isso preserva o ponto padrão sem
     # adicionar uma chave extra ao grid.
     stage_1 = _parse_stage(config, 1)
-    inputs = tf.keras.Input(shape=input_shape, name="input")
+    # batch_size=1 deixa todas as formas estáticas, como nos .tflite oficiais;
+    # sem isso o Flatten vira SHAPE/STRIDED_SLICE/PACK/RESHAPE no grafo.
+    inputs = tf.keras.Input(shape=input_shape, batch_size=1, name="input")
     x = _conv_bn(
         inputs,
         stage_1.channels,
@@ -350,6 +352,9 @@ def build_and_quantize_model(
         activation="softmax",
         use_bias=True,
         kernel_initializer=_KERNEL_INITIALIZER,
+        # Bias aleatório: com bias zero (inicialização padrão) o conversor o
+        # descarta, e o modelo treinado oficial tem bias.
+        bias_initializer="random_normal",
         kernel_regularizer=tf.keras.regularizers.l2(_L2_STRENGTH),
         name="predictions",
     )(x)
@@ -378,6 +383,9 @@ def build_and_quantize_model(
     converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
     converter.inference_input_type = tf.int8
     converter.inference_output_type = tf.int8
+    # Os .tflite oficiais têm FULLY_CONNECTED quantizado por tensor; o TF atual
+    # quantiza camadas densas por canal por padrão.
+    converter._experimental_disable_per_channel_quantization_for_dense_layers = True
 
     tflite_bytes = converter.convert()
     tflite_path = tmp_dir / _safe_tflite_filename(variant_name)

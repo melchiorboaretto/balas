@@ -18,6 +18,12 @@ class MyModel {
     public:
         MyModel();
         void run_inference(ModelInput& input, ModelOutput& output);
+        // run_inference em três etapas, para cronometrar só invoke(): a
+        // quantização da entrada e da saída não faz parte da inferência
+        // (o MLPerf Tiny também mede só a execução do modelo).
+        void set_input(ModelInput& input);
+        void invoke();
+        void get_output(ModelOutput& output);
         void print_outputs(ModelOutput& output);
         int get_input_size();
         int get_output_size();

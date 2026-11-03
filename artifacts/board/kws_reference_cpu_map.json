@@ -1,0 +1,23 @@
+{
+  "03ac250113bfc5a4": {
+    "hash_id": "03ac250113bfc5a4",
+    "hyperparameters": [
+      4,
+      64,
+      3,
+      64,
+      4,
+      10
+    ],
+    "variant_name": "ds_blocks-4_ds_channels-64_ds_kernel_size-3_first_conv_channels-64_first_kernel_col-4_first_kernel_row-10",
+    "config": {
+      "ds_blocks": 4,
+      "ds_channels": 64,
+      "ds_kernel_size": 3,
+      "first_conv_channels": 64,
+      "first_kernel_col": 4,
+      "first_kernel_row": 10
+    },
+    "iteration_index": 0
+  }
+}
