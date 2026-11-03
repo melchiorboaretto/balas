@@ -38,18 +38,26 @@ GEN_RESOLVER_OPS
 
 
 void MyModel::run_inference(ModelInput& input, ModelOutput& output) {
+    set_input(input);
+    invoke();
+    get_output(output);
+}
+
+void MyModel::set_input(ModelInput& input) {
     TfLiteTensor* in_t = interpreter.input_tensor(0);
-    TfLiteTensor* out_t = interpreter.output_tensor(0);
-
     float32_to_int8(input.data, in_t->data.int8, input.size, in_t->params.scale, in_t->params.zero_point);
+}
 
+void MyModel::invoke() {
     TfLiteStatus invoke_status = interpreter.Invoke();
 
     if (invoke_status != kTfLiteOk) {
     	while(1) {}
-        return;
     }
+}
 
+void MyModel::get_output(ModelOutput& output) {
+    TfLiteTensor* out_t = interpreter.output_tensor(0);
     int8_to_float32(out_t->data.int8, output.data, output.size, out_t->params.scale, out_t->params.zero_point);
 }
 

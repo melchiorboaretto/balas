@@ -1,0 +1,58 @@
+# TESTE NA PLACA — IC de referência (ResNet-8), só CPU (FRDM-MCXN947).
+# Igual a configs/cifar_10_reference.toml, gravando em artifacts/board/.
+
+# ===========================================================================
+# REFERÊNCIA EXATA — ResNet8 (Image Classification)
+# ===========================================================================
+# Topologia: entrada 32x32x3 -> stem 16 -> estágios 16/32/64 -> GAP -> 10.
+# MACs esperados: 12.501.632, a contagem do ResNet8 de referência do
+# MLPerf Tiny v1.1. Esse valor é o alvo topológico, não um dado extraído
+# do fixture de sanity.
+#
+# Latência já registrada em uma placa NXP FRDM-MCXN947 (MCXN947):
+#   média 234.708,2 µs (~234,71 ms), desvio padrão 7,81 µs.
+#
+# Atenção: essa latência é a medição real do modelo recuperado de
+# cpp-project/tflite-test/model/model_data.h (fixture de sanity), não um
+# resultado oficial publicado pelo MLPerf Tiny. O modelo recuperado tem
+# 9 CONV_2D, 3 ADD, 1 AVERAGE_POOL_2D, 1 FULLY_CONNECTED e 1 SOFTMAX,
+# portanto tem topologia ResNet8 — não é o proxy reduzido de 3 convs.
+# Fontes: testdata/sanity-model/manifest.json e
+# docs/010_sanity-test-image-classification-recuperado.md.
+#
+# Este grid tem exatamente 1 combinação. Não altere os valores se quiser
+# reproduzir o ponto de referência.
+
+[experiment]
+name = "cifar_10_reference_cpu_board"
+benchmark = "cifar_ten"
+base_seed = 72
+profiling_samples = 10
+output_csv = "artifacts/board/cifar_10_reference_cpu.csv"
+output_map = "artifacts/board/cifar_10_reference_cpu_map.json"
+
+[hyperparameters.grid]
+# Stem + estágio 1: 16 canais, kernel 3x3, um bloco basic, stride 1.
+channels_1 = [16]
+kernel_1 = [3]
+blocks_1 = [1]
+stride_1 = [1]
+block_type_1 = ["basic"]
+
+# Estágio 2: 32 canais, kernel 3x3, um bloco basic, stride 2.
+channels_2 = [32]
+kernel_2 = [3]
+blocks_2 = [1]
+stride_2 = [2]
+block_type_2 = ["basic"]
+
+# Estágio 3: 64 canais, kernel 3x3, um bloco basic, stride 2.
+channels_3 = [64]
+kernel_3 = [3]
+blocks_3 = [1]
+stride_3 = [2]
+block_type_3 = ["basic"]
+
+[model_specs]
+input_shape = [32, 32, 3]
+num_classes = 10
