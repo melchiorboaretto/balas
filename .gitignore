@@ -28,10 +28,10 @@ cpp-project/nrf52840-tflite-test/build*/
 
 test.sh
 
-# Experimentos locais NPU e artefatos pesados
+# Experimentos locais NPU e artefatos pesados gerados
 artifacts/cpu_vs_npu/
-cpp-project/npu-tflite-test/
-configs/cpu_vs_npu/
-python_scripts/npu/
 artifacts/board/*npu*
+cpp-project/npu-tflite-test/Debug/
+cpp-project/npu-tflite-test/Release/
+cpp-project/npu-tflite-test/.settings/
 

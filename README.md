@@ -140,3 +140,33 @@ uv run run_all_benchmarks.py \
 - `--profiling-samples`: Quantidade de amostras enviadas via serial por modelo testado. Se omitido, utiliza o `profiling_samples` definido em cada `.toml` (padrão: `None` -> `10` nos arquivos `.toml`).
 - `--max-iterations`: Limite máximo de iterações a serem executadas. Se omitido, roda continuamente até ser interrompido com `Ctrl+C` (padrão: `None`).
 - `--retry-delay`: Tempo de espera em segundos antes de tentar novamente a iteração atual após um erro crítico e rollback (padrão: `5.0`).
+
+
+## Execução de Benchmarks CPU x NPU na NXP (FRDM-MCXN947)
+
+Para avaliar o coprocessador neural (**eIQ Neutron N1-16**) em comparação direta com o núcleo **Cortex-M33 (CMSIS-NN)**, o repositório conta com um módulo dedicado em `python_scripts/npu/`.
+
+### 1. Diagnóstico do Ambiente
+Verifica se todas as ferramentas NXP e permissões de hardware estão prontas:
+```bash
+python python_scripts/npu/run_nxp.py check
+```
+
+### 2. Modos de Teste
+O launcher unificado `run_nxp.py` facilita os diferentes formatos de execução:
+
+```bash
+# Modo Teste / Dry-Run (valida 1 modelo de cada no PC sem precisar da placa conectada)
+python python_scripts/npu/run_nxp.py dry-run
+
+# Modo Referência (mede os 4 modelos oficiais do MLPerf Tiny na placa)
+python python_scripts/npu/run_nxp.py referencia
+
+# Modo Aleatório (busca DSE com sorteio baseado em seeds - formato clássico do BALAS)
+python python_scripts/npu/run_nxp.py aleatorio --modelos kws --max-variantes 50
+
+# Modo Bateria Completa (executa sistematicamente todas as combinações dos grids novos)
+python python_scripts/npu/run_nxp.py completo --modelos kws
+```
+
+Os resultados comparativos pareados e o cálculo de speedup (`CPU_us / NPU_us`) são salvos em `artifacts/cpu_vs_npu/`. Para mais detalhes de configuração e arquitetura, consulte [`docs/026_tutorial-npu-mcxn947.md`](docs/026_tutorial-npu-mcxn947.md).

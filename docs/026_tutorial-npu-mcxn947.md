@@ -339,16 +339,63 @@ void run_inference() {
 
 ## 5. Compilando e Gravando na Placa
 
-### 5.1. Opção A: Usando MCUXpresso IDE (GUI)
+### 5.1. Execução Automatizada no B.A.L.A.S (Pipeline Completo CPU x NPU)
+
+O B.A.L.A.S possui um pipeline integrado em [`python_scripts/npu/cpu_vs_npu.py`](file:///home/cami/Documentos/balas/python_scripts/npu/cpu_vs_npu.py) que automatiza todo o ciclo: gera os modelos TFLite quantizados, converte via `neutron_compiler`, grava na placa e mede lado a lado a CPU (com CMSIS-NN) e a NPU (com NeutronGraph), calculando o speedup exato e verificando a fidelidade numérica das saídas.
+
+#### A. Diagnóstico Automático do Ambiente
+Antes de rodar na placa, verifique se todas as dependências estão prontas:
+```bash
+.venv/bin/python python_scripts/npu/cpu_vs_npu.py --check-env
+```
+Este comando valida Python, compilador ARM GCC, MCUXpresso IDE, LinkServer, bibliotecas estáticas da NPU, permissões de porta serial e grupo `dialout`.
+
+#### B. Modos de Execução Disponíveis
+
+* **Modo 1: Dry-Run / Teste Rápido (Sem Placa)**
+  Valida rapidamente no PC se os modelos compilam, convertem no Neutron e cabem na memória Flash e RAM:
+  ```bash
+  # Testa 1 modelo de cada benchmark (kws, vww, ic, ad) no PC:
+  .venv/bin/python python_scripts/npu/cpu_vs_npu.py --modelos all --modo referencia --sem-placa
+  ```
+
+* **Modo 2: Modelos de Referência Oficial (Na Placa)**
+  Executa na placa os 4 modelos canônicos do MLPerf Tiny v1.0/v1.1:
+  ```bash
+  .venv/bin/python python_scripts/npu/cpu_vs_npu.py --modelos all --modo referencia
+  ```
+
+* **Modo 3: DSE Aleatório (Sorteio nos Grids Históricos do BALAS)**
+  Executa amostragens aleatórias do espaço de busca DSE baseado em seeds:
+  ```bash
+  # Executa 50 variantes sorteadas do benchmark KWS:
+  .venv/bin/python python_scripts/npu/cpu_vs_npu.py --modelos kws --modo dse --max-variantes 50
+  ```
+
+* **Modo 4: DSE Completo (Bateria Sistemática de Todas as Combinações)**
+  Executa todas as variantes do grid novo (configs em `configs/cpu_vs_npu/`), com tolerância a interrupções (salva em CSV e retoma de onde parou se usar Ctrl+C):
+  ```bash
+  # Executa as 240 combinações do grid do KWS:
+  .venv/bin/python python_scripts/npu/cpu_vs_npu.py --modelos kws --modo dse_novo --sim
+  ```
+
+* **Filtrando Backends:**
+  Por padrão, o script mede ambos (`--backends cpu,npu`) para calcular o speedup. Você também pode isolar:
+  - `--backends cpu`: Executa apenas no processador Cortex-M33 com CMSIS-NN.
+  - `--backends npu`: Executa apenas o modelo acelerado (NPU + restante CPU).
+
+---
+
+### 5.2. Opção Manual: Usando MCUXpresso IDE (GUI)
 
 1. Abra o **MCUXpresso IDE**
-2. Importe o projeto de exemplo eIQ da SDK (ex: `tensorflow_lite_micro_cifar10`)
+2. Importe o projeto de exemplo eIQ da SDK (ex: `tensorflow_lite_micro_cifar10` ou o projeto `cpp-project/npu-tflite-test`)
 3. Substitua o model data pelo seu `model_data.h`
 4. Compile (Build)
 5. Conecte a FRDM-MCXN947 via USB
 6. Debug / Flash
 
-### 5.2. Opção B: Linha de Comando (CMake + Make)
+### 5.3. Opção Manual: Linha de Comando (CMake + Make)
 
 ```bash
 # Navegar até o exemplo

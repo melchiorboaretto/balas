@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<projectDescription>
+	<name>frdmmcxn947_tflm_kws_cm33_core0</name>
+	<comment></comment>
+	<projects>
+	</projects>
+	<buildSpec>
+		<buildCommand>
+			<name>org.eclipse.cdt.managedbuilder.core.genmakebuilder</name>
+			<triggers>clean,full,incremental,</triggers>
+			<arguments>
+			</arguments>
+		</buildCommand>
+		<buildCommand>
+			<name>org.eclipse.cdt.managedbuilder.core.ScannerConfigBuilder</name>
+			<triggers>full,incremental,</triggers>
+			<arguments>
+			</arguments>
+		</buildCommand>
+	</buildSpec>
+	<natures>
+		<nature>org.eclipse.cdt.core.cnature</nature>
+		<nature>org.eclipse.cdt.core.ccnature</nature>
+		<nature>com.nxp.mcuxpresso.core.datamodels.sdkNature</nature>
+		<nature>org.eclipse.cdt.managedbuilder.core.managedBuildNature</nature>
+		<nature>org.eclipse.cdt.managedbuilder.core.ScannerConfigNature</nature>
+	</natures>
+	<linkedResources>
+		<link>
+			<name>doc/example_board_readme.md</name>
+			<type>1</type>
+			<locationURI>SDK_2_x_FRDM_MCXN947/boards/frdmmcxn947/eiq_examples/tflm_kws/cm33_core0/example_board_readme.md</locationURI>
+		</link>
+		<link>
+			<name>doc/examples_shared_readme.md</name>
+			<type>1</type>
+			<locationURI>SDK_2_x_FRDM_MCXN947/boards/frdmmcxn947/eiq_examples/tflm_kws/cm33_core0/examples_shared_readme.md</locationURI>
+		</link>
+		<link>
+			<name>doc/readme.md</name>
+			<type>1</type>
+			<locationURI>SDK_2_x_FRDM_MCXN947/boards/frdmmcxn947/eiq_examples/tflm_kws/cm33_core0/readme.md</locationURI>
+		</link>
+	</linkedResources>
+</projectDescription>

@@ -1,0 +1,20 @@
+# ===========================================================================
+# GRID NOVO DO AD (Deep Autoencoder) PARA O DSE CPU x NPU - 224 combinacoes
+# ===========================================================================
+# Usado por python_scripts/npu/cpu_vs_npu.py --modo dse_novo.
+# Mesmos valores do grid antigo (configs/ad.toml): ja estava equilibrado em
+# volta da referencia (128 unidades, gargalo 8, 4 camadas) e tudo cabe.
+
+[experiment]
+name = "dse_novo_ad"
+benchmark = "anomaly_detection"
+base_seed = 72
+
+[hyperparameters.grid]
+hidden_units = [32, 64, 96, 128, 160, 192, 256]
+bottleneck_units = [4, 8, 12, 16, 24, 32, 48, 64]
+num_hidden_layers = [2, 3, 4, 5]
+
+[model_specs]
+input_shape = [1, 640]
+num_classes = 640
