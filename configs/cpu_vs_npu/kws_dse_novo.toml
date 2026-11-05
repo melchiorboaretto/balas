@@ -1,0 +1,30 @@
+# ===========================================================================
+# GRID NOVO DO KWS (DS-CNN) PARA O DSE CPU x NPU - 240 combinacoes
+# ===========================================================================
+# Usado por python_scripts/npu/cpu_vs_npu.py --modo dse_novo.
+# O grid antigo (configs/kws.toml, 5.376 combinacoes) fica intacto.
+#
+# Ideia: variar em volta da referencia do MLPerf Tiny (64 canais, 4 blocos,
+# kernel 3, primeira conv 64 canais 10x4), de ~1/4 ate ~4x o custo, e rodar
+# TODAS as combinacoes (sem sorteio).
+#
+# first_kernel_row: 8 ou 10. Nas 40 variantes testadas sem placa, kernel com
+# 10 ou mais linhas sempre deixou um PAD na CPU e com 8 ou menos nunca.
+# Manter os dois deixa o DSE medir o efeito desse PAD no speedup.
+
+[experiment]
+name = "dse_novo_kws"
+benchmark = "keyword_spotting"
+base_seed = 72
+
+[hyperparameters.grid]
+first_conv_channels = [32, 64, 96]
+first_kernel_row = [8, 10]
+first_kernel_col = [4]
+ds_blocks = [2, 3, 4, 5]
+ds_channels = [32, 48, 64, 96, 128]
+ds_kernel_size = [3, 5]
+
+[model_specs]
+input_shape = [49, 10, 1]
+num_classes = 12

@@ -1,0 +1,49 @@
+# ===========================================================================
+# GRID NOVO DO IC (ResNet8) PARA O DSE CPU x NPU - 224 combinacoes validas
+# ===========================================================================
+# Usado por python_scripts/npu/cpu_vs_npu.py --modo dse_novo.
+# O grid antigo (configs/cifar_10.toml, 258.552 combinacoes) fica intacto.
+#
+# Problemas do grid antigo que este corrige:
+#   - canais de cada estagio sorteados de forma independente -> modelos
+#     "de ponta-cabeca" (128 canais no inicio, 16 no fim);
+#   - kernel 7 no estagio 3, onde a imagem ja e 8x8;
+#   - kernel 2 (par, sem centro);
+#   - nenhuma variante menor que a referencia e metade nao cabia na placa.
+#
+# Referencia: canais 16/32/64, kernel 3, 1 bloco por estagio.
+# Canais de ~0,5x a ~1,5x da referencia em cada estagio (a referencia fica no
+# meio de cada lista). Uma 1a proposta com canais ate 2x (32/64/128) ficou
+# grande demais: mediana 3,2x os MACs da referencia e 22 de 192 nao cabiam
+# (resultado em artifacts/cpu_vs_npu/ic_dse_proposta1_sem_placa.csv).
+#
+# Restricoes (secao [restricoes]): canais nunca diminuem de um estagio para o
+# outro e o kernel e o mesmo nos tres estagios.
+# Conta: 56 trios de canais crescentes x 2 kernels x 2 (blocos no estagio 3).
+
+[experiment]
+name = "dse_novo_ic"
+benchmark = "cifar_ten"
+base_seed = 72
+
+[hyperparameters.grid]
+channels_1 = [8, 12, 16, 24]
+channels_2 = [16, 24, 32, 48]
+channels_3 = [32, 48, 64, 96]
+kernel_1 = [3, 5]
+kernel_2 = [3, 5]
+kernel_3 = [3, 5]
+blocks_3 = [1, 2]
+
+[restricoes]
+# Cada linha: "<chave> <operador> <chave>", operadores <=, <, ==, >=, >.
+regras = [
+    "channels_1 <= channels_2",
+    "channels_2 <= channels_3",
+    "kernel_1 == kernel_2",
+    "kernel_2 == kernel_3",
+]
+
+[model_specs]
+input_shape = [32, 32, 3]
+num_classes = 10

@@ -1,0 +1,22 @@
+# ===========================================================================
+# GRID NOVO DO VWW (MobileNetV1) PARA O DSE CPU x NPU - 60 combinacoes
+# ===========================================================================
+# Usado por python_scripts/npu/cpu_vs_npu.py --modo dse_novo.
+# Mesmos valores do grid antigo (configs/vww.toml): ele ja estava bom,
+# variando em volta da referencia (alpha 0.25, 5 blocos centrais, kernel 3).
+# As poucas combinacoes grandes que nao cabem na flash (alpha 0.5 com muitos
+# blocos) ficam: o script registra "nao_cabe_flash" sem gravar a placa.
+
+[experiment]
+name = "dse_novo_vww"
+benchmark = "visual_wake_words"
+base_seed = 72
+
+[hyperparameters.grid]
+alpha = [0.125, 0.1875, 0.25, 0.3125, 0.375, 0.5]
+middle_blocks = [1, 2, 3, 4, 5]
+kernel_size = [3, 5]
+
+[model_specs]
+input_shape = [96, 96, 3]
+num_classes = 2
