@@ -14,7 +14,12 @@ STM32_MODEL_DIR = Path("cpp-project/stm32-tflite-test/Core/Model")
 NORDIC_MODEL_DIR = Path("cpp-project/nrf52840-tflite-test/Model")
 
 def analyze_model(model_file):
-    interpreter = tf.lite.Interpreter(model_path=model_file)
+    # Sem o delegate XNNPACK: ele falha ao preparar alguns modelos int8 válidos
+    # (ex.: MobileNetV1 com TANH) e com ele a lista de ops ganha nós DELEGATE.
+    interpreter = tf.lite.Interpreter(
+        model_path=str(model_file),
+        experimental_op_resolver_type=tf.lite.experimental.OpResolverType.BUILTIN_WITHOUT_DEFAULT_DELEGATES,
+    )
     interpreter.allocate_tensors()
     ops_details = interpreter._get_ops_details()
     input_details = interpreter.get_input_details()[0]
@@ -27,6 +32,13 @@ def get_resolver_function_names(ops_details):
     function_names = []
     for op in ops_details:
         if op['op_name'] not in resolver_map.keys():
+            if op['op_name'] != "DELEGATE":
+                # Sem o Add*() no resolver, AllocateTensors()/Invoke() falham na placa.
+                print(
+                    f"⚠️  [generator] op {op['op_name']} não está em resolver_map.py; "
+                    "o firmware não vai conseguir executá-lo.",
+                    file=sys.stderr,
+                )
             continue
         if resolver_map[op['op_name']] not in function_names:
             function_names.append(resolver_map[op['op_name']])

@@ -1,10 +1,28 @@
 import subprocess
+import sys
+
 from python_scripts.config import find_stm32tflm
 
+# Último recurso, usado só se nem o stm32tflm nem o fallback analítico funcionarem.
+_LAST_RESORT_ARENA = 32768
+
+
+def _warn(message: str) -> None:
+    print(f"⚠️  [arena_estimator] {message}", file=sys.stderr)
+
+
 def estimate_tensor_arena_size(model_path: str) -> int:
-    """Runs stm32tflm with a quantized TFLite model and returns the RAM usage in bytes.
-    If stm32tflm is not installed, falls back to estimating tensor arena memory
-    from the TFLite model structure with alignment overhead.
+    """Estima a arena do TFLM (bytes) para um .tflite quantizado.
+
+    1. Usa o ``stm32tflm`` (ST) quando disponível, como antes.
+    2. Sem ele, usa uma estimativa por liveness: pico dos tensores de ativação
+       vivos ao mesmo tempo + overhead persistente do TFLM + maior scratch do
+       CMSIS-NN. Pesos e biases ficam na flash e não entram na conta.
+
+    O fallback antigo somava todos os tensores do modelo (inclusive os pesos) e
+    multiplicava por 1,25: para o ResNet8 de referência dava ~248 KB, contra
+    ~55-57 KB reais, o que fazia modelos que cabem falharem na compilação das
+    placas com pouca RAM.
     """
     stm32tflm_bin = find_stm32tflm()
     if stm32tflm_bin:
@@ -18,28 +36,14 @@ def estimate_tensor_arena_size(model_path: str) -> int:
             for line in result.stdout.splitlines():
                 if line.startswith("Ram:"):
                     return int(line.split(":")[1].strip())
-        except Exception:
-            pass
+            _warn(f"stm32tflm não imprimiu 'Ram:'; usando a estimativa por liveness.")
+        except Exception as exc:
+            _warn(f"stm32tflm falhou ({exc}); usando a estimativa por liveness.")
 
-    # Fallback autônomo (não requer ferramenta externa da ST instalada):
     try:
-        import numpy as np
-        import tensorflow as tf
+        from python_scripts.dse.tflite_inspect import estimate_tflm_arena, inspect_tflite
 
-        interpreter = tf.lite.Interpreter(model_path=model_path)
-        interpreter.allocate_tensors()
-        tensor_details = interpreter.get_tensor_details()
-
-        # Calcula o tamanho dos tensores de ativação
-        total_activation_bytes = 0
-        for t in tensor_details:
-            shape = t.get("shape", [])
-            dtype = t.get("dtype")
-            itemsize = np.dtype(dtype).itemsize if dtype else 1
-            n_bytes = int(np.prod(shape)) * itemsize
-            total_activation_bytes += n_bytes
-
-        # Adiciona margem de segurança para alinhamento (16 bytes) e cabeçalhos do TFLM
-        return max(int(total_activation_bytes * 1.25) + 2048, 4096)
-    except Exception:
-        return 32768
+        return estimate_tflm_arena(inspect_tflite(model_path))
+    except Exception as exc:
+        _warn(f"estimativa por liveness falhou ({exc}); usando {_LAST_RESORT_ARENA} B.")
+        return _LAST_RESORT_ARENA

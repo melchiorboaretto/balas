@@ -1,23 +1,49 @@
+# ===========================================================================
+# DSE — Keyword Spotting (DS-CNN do MLPerf Tiny), espaço na casa dos milhões
+# ===========================================================================
+# Números (python_scripts/dse/space_report.py, Monte Carlo com 30.000 amostras):
+#   grid bruto ........ 9.676.800 combinações
+#   distintos ......... 5.644.800 modelos
+#   na faixa .......... ~2,27 milhões (params entre 0,3x e 3x a referência)
+#   mistura estimada .. cabe nas 3 placas ~92% | em algumas ~8% | em nenhuma ~0%
+#
+# O DS-CNN é pequeno (22,6 mil params): mesmo 3x maior ele quase sempre cabe.
+# Só stride 1 na primeira conv com muitos canais estoura a RAM da STM32.
+#
+# Referência (defaults = MLPerf Tiny v1.0/v1.1): 22.604 params, 2.656.768 MACs,
+# pico de ativação 16.000 B. Conv inicial 64 canais 10x4 stride 2x2, 4 blocos
+# DS de 64 canais kernel 3, ReLU.
+
 [experiment]
 name = "dse_kws"
 benchmark = "keyword_spotting"
 base_seed = 72
 profiling_samples = 10
-output_csv = "artifacts/kws_database.csv"
-output_map = "artifacts/kws_map.json"
+output_csv = "artifacts/{target}/dse_kws.csv"
+output_map = "artifacts/{target}/dse_kws_map.json"
 
 [hyperparameters.grid]
-# Canais da primeira convolução temporal/frequencial (MLPerf Tiny referência = 64)
-first_conv_channels = [16, 24, 32, 48, 64, 80, 96]
-# Dimensões do kernel retangular inicial (MLPerf Tiny referência = 10x4)
-first_kernel_row = [6, 8, 10, 12]
-first_kernel_col = [2, 4, 6]
-# Número de blocos Depthwise Separable (profundidade; MLPerf Tiny referência = 4)
-ds_blocks = [2, 3, 4, 5]
-# Canais dos blocos Depthwise Separable (MLPerf Tiny referência = 64)
-ds_channels = [16, 24, 32, 48, 64, 80, 96, 128]
-# Tamanho do filtro convolucional depthwise (MLPerf Tiny referência = 3)
-ds_kernel_size = [3, 5]
+# Primeira convolução: canais, kernel (linhas = tempo, colunas = MFCC) e stride.
+first_conv_channels = [16, 32, 48, 64, 80, 96, 112, 128]
+first_kernel_row = [4, 6, 8, 10, 12]
+first_kernel_col = [2, 3, 4, 5, 6]
+# Stride 1 mantém o mapa 49x10 (4x mais ativação e MACs que o 2x2 da referência).
+first_stride_row = [1, 2]
+first_stride_col = [1, 2]
+
+# Blocos depthwise separable: quantidade, largura e kernel do depthwise.
+ds_blocks = [2, 3, 4, 5, 6, 7, 8]
+ds_channels = [16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 256]
+ds_kernel_size = [3, 5, 7]
+# 0 = sem downsample; k = o depthwise do bloco k usa stride 2.
+ds_downsample_block = [0, 1, 2]
+
+# Função de ativação da rede inteira (ver comentário em cifar_10.toml).
+activation = ["relu", "relu6", "leaky_relu", "hard_swish", "sigmoid", "tanh"]
+leaky_slope = [0.1, 0.3]
+
+[hyperparameters.constraints]
+params_ratio = [0.3, 3.0]
 
 [model_specs]
 input_shape = [49, 10, 1]

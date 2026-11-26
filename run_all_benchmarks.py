@@ -10,9 +10,15 @@ REPO_ROOT = Path(__file__).resolve().parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from python_scripts.dse.builders import get_builder_module
 from python_scripts.dse.checkpoint import CheckpointManager
-from python_scripts.dse.config_loader import load_dse_config
-from python_scripts.dse.hashing import sample_hyperparameters_for_seed
+from python_scripts.dse.config_loader import DRY_RUN_TARGET, load_dse_config
+from python_scripts.dse.sampling import sample_config
+
+# Prefixos gravados por run_continuous_experiment.py.
+_NON_CRITICAL_PREFIXES = ("build_failure:", "runtime_failure:")
+_SERIAL_FAILURE_PREFIX = "serial_failure:"
+RUNTIME_FAILURE_PREFIX = "runtime_failure:"
 
 
 def discover_config_tomls(configs_dir: Path) -> list[Path]:
@@ -36,13 +42,31 @@ def is_critical_error(error_msg: str | None) -> bool:
     Classifica se o erro registrado em uma execução é crítico.
     - Sem erro (""): não é crítico (False).
     - Erro de compile.sh: aceitável (False), pois indica que a arena/modelo não coube na FLASH/RAM.
-    - Erro de deploy.sh, falha na leitura de 4 bytes na serial ou qualquer outro erro: crítico (True).
+    - build_failure: (builder/conversão/estimativa) é determinístico: repetir não muda nada (False).
+    - runtime_failure: falha na placa que se repetiu além do limite de tentativas (False).
+    - Erro de deploy.sh, falha na serial ou qualquer outro erro: crítico (True).
     """
     if not error_msg or not error_msg.strip():
         return False
     if "compile.sh" in error_msg:
         return False
+    if error_msg.strip().startswith(_NON_CRITICAL_PREFIXES):
+        return False
     return True
+
+
+def is_runtime_failure_candidate(error_msg: str | None) -> bool:
+    """Falha serial depois de um deploy bem-sucedido: pode ser do próprio modelo.
+
+    Ex.: arena que compila mas não cabe no AllocateTensors, buffer de entrada que
+    não cabe no heap, ou inferência mais lenta que o timeout. Esses casos se
+    repetem a cada tentativa, então viram resultado depois de N repetições.
+    Erros de deploy.sh (placa desconectada, probe) nunca entram aqui.
+    """
+    if not error_msg:
+        return False
+    msg = error_msg.strip()
+    return msg.startswith(_SERIAL_FAILURE_PREFIX) and "deploy.sh" not in msg
 
 
 def rollback_iteration_across_configs(configs_meta: list[dict], iteration: int) -> None:
@@ -93,7 +117,7 @@ def check_config_iteration_status(meta: dict, iteration: int) -> tuple[bool, boo
         return True, False, err
 
     seed = dse_cfg["base_seed"] + iteration
-    _, _, hash_id, _ = sample_hyperparameters_for_seed(dse_cfg["grid"], seed)
+    hash_id = sample_config(dse_cfg, meta["builder"], seed).hash_id
     if cp.is_completed(hash_id):
         return True, False, ""
 
@@ -185,25 +209,51 @@ def main():
         action="store_true",
         help="Executa em modo de simulação (host-only), pulando compilação, deploy e serial.",
     )
+    parser.add_argument(
+        "--max-runtime-retries",
+        type=int,
+        default=2,
+        help=(
+            "Quantas vezes repetir uma falha serial do mesmo modelo antes de gravá-la como "
+            "runtime_failure e seguir em frente (padrão: 2)."
+        ),
+    )
     args = parser.parse_args()
 
     if args.batch_size < 1:
         parser.error("--batch-size deve ser maior ou igual a 1.")
+    if args.max_runtime_retries < 0:
+        parser.error("--max-runtime-retries deve ser >= 0.")
 
     if args.target:
         os.environ["BALAS_TARGET"] = args.target
 
+    if not args.dry_run:
+        from python_scripts.dse.hardware import HardwareAdapter
+
+        try:
+            HardwareAdapter(target=args.target).check_supported()
+        except RuntimeError as exc:
+            print(f"❌ {exc}")
+            sys.exit(2)
+
     configs_dir = (REPO_ROOT / args.configs_dir).resolve()
     results_dir = (REPO_ROOT / args.results_dir).resolve()
     toml_files = discover_config_tomls(configs_dir)
+    load_target = DRY_RUN_TARGET if args.dry_run else None
 
-    configs_meta = [
-        {
-            "toml_path": toml_path,
-            "dse_cfg": load_dse_config(toml_path, serial_override=args.serial_device),
-        }
-        for toml_path in toml_files
-    ]
+    configs_meta = []
+    for toml_path in toml_files:
+        dse_cfg = load_dse_config(toml_path, serial_override=args.serial_device, target=load_target)
+        configs_meta.append(
+            {
+                "toml_path": toml_path,
+                "dse_cfg": dse_cfg,
+                "builder": get_builder_module(dse_cfg["benchmark"]),
+            }
+        )
+    # Falhas seriais por (toml, iteration_index), para o limite de repetições.
+    runtime_failures: dict[tuple[str, int], int] = {}
 
     print("=" * 75)
     print("🚀 Inicializando Execução Orquestrada de Todos os Benchmarks")
@@ -293,6 +343,22 @@ def main():
                     done_after, has_crit_after, err_after = (
                         check_config_iteration_status(meta, iteration)
                     )
+                    if has_crit_after and is_runtime_failure_candidate(err_after):
+                        key = (toml_path.name, iteration)
+                        runtime_failures[key] = runtime_failures.get(key, 0) + 1
+                        if runtime_failures[key] > args.max_runtime_retries:
+                            cp = CheckpointManager(
+                                meta["dse_cfg"]["output_csv"], meta["dse_cfg"]["output_map"]
+                            )
+                            cp.mark_iteration_error(
+                                iteration, f"{RUNTIME_FAILURE_PREFIX} {err_after}"
+                            )
+                            print(
+                                f"   ℹ️  [{toml_path.name}] Falha serial repetida "
+                                f"{runtime_failures[key]}x no mesmo modelo; gravada como "
+                                f"runtime_failure e mantida."
+                            )
+                            done_after, has_crit_after = True, False
                     if has_crit_after:
                         critical_failure = True
                         failed_benchmark = toml_path.name

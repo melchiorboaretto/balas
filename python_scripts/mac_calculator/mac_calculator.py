@@ -5,7 +5,12 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 import tensorflow as tf
 
 def count_macs(model_path):
-    interpreter = tf.lite.Interpreter(model_path=model_path)
+    # Sem o delegate XNNPACK: ele falha ao preparar alguns modelos int8 válidos
+    # (ex.: MobileNetV1 com TANH) e a contagem só precisa das formas.
+    interpreter = tf.lite.Interpreter(
+        model_path=str(model_path),
+        experimental_op_resolver_type=tf.lite.experimental.OpResolverType.BUILTIN_WITHOUT_DEFAULT_DELEGATES,
+    )
     interpreter.allocate_tensors()  # Needed for shape resolution
 
     total_macs = 0

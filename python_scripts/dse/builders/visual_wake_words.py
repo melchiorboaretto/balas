@@ -1,11 +1,16 @@
-import hashlib
 import os
 from pathlib import Path
 
-import numpy as np
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-import tensorflow as tf
+from python_scripts.dse.builders._graph import (
+    ACTIVATION_GRID_KEYS,
+    GraphSpec,
+    build_keras,
+    canonicalize_activation,
+    quantize_to_tflite,
+    resolve_activation,
+)
 
 
 # Builder DSE de Visual Wake Words baseado no MobileNetV1 (alpha=0.25) do MLPerf Tiny.
@@ -14,24 +19,41 @@ import tensorflow as tf
 # MobileNetV1 com resolução 96x96x3 e fator de largura alpha=0.25:
 #   - Convolução Inicial: Conv2D(8, 3x3, strides=2, padding='same') + BatchNorm + ReLU
 #   - 13 Blocos Depthwise Separable (todos com BatchNorm e ReLU):
-#       1. DW(3x3, s=1) -> PW(16)
-#       2. DW(3x3, s=2) -> PW(32)
-#       3. DW(3x3, s=1) -> PW(32)
-#       4. DW(3x3, s=2) -> PW(64)
-#       5. DW(3x3, s=1) -> PW(64)
-#       6. DW(3x3, s=2) -> PW(128)
-#       7-11. 5 blocos repetidos: DW(3x3, s=1) -> PW(128)
-#       12. DW(3x3, s=2) -> PW(256)
-#       13. DW(3x3, s=1) -> PW(256)
+#       1. DW(3x3, s=1) -> PW(16)                  grupo "stem" (largura base 8)
+#       2. DW(3x3, s=2) -> PW(32)                  grupo 2
+#       3. DW(3x3, s=1) -> PW(32)                  grupo 2 (reps_2 = 1)
+#       4. DW(3x3, s=2) -> PW(64)                  grupo 3
+#       5. DW(3x3, s=1) -> PW(64)                  grupo 3 (reps_3 = 1)
+#       6. DW(3x3, s=2) -> PW(128)                 grupo 4
+#       7-11. 5 blocos DW(3x3, s=1) -> PW(128)     grupo 4 (middle_blocks = 5)
+#       12. DW(3x3, s=2) -> PW(256)                grupo 5
+#       13. DW(3x3, s=1) -> PW(256)                grupo 5 (reps_5 = 1)
 #   - Cabeça: AveragePooling2D 3x3 + Flatten + Dense(2, softmax)
 #
-# O grid controla a largura geral (alpha / largura base), a profundidade dos blocos centrais
-# (middle_blocks, onde o padrão é 5 para totalizar 13 blocos) e o kernel depthwise.
+# Chaves de largura:
+#   - alpha (legado/global): canais = max(8, int(base * alpha)), como no builder anterior.
+#   - width_stem, width_2..width_5 (opcionais): número explícito de canais de cada
+#     grupo; quando presentes, sobrescrevem o alpha para aquele grupo. O bloco 1
+#     usa 2 * width_stem, como no MobileNetV1.
+# input_size (opcional) troca a resolução de entrada (quadrada), mantendo os canais
+# de model_specs.input_shape.
 GRID_KEYS = (
     "alpha",
     "middle_blocks",
     "kernel_size",
 )
+
+OPTIONAL_GRID_KEYS = (
+    "input_size",
+    "width_stem",
+    "width_2",
+    "width_3",
+    "width_4",
+    "width_5",
+    "reps_2",
+    "reps_3",
+    "reps_5",
+) + ACTIVATION_GRID_KEYS
 
 # Nomes legados aceitos para compatibilidade regressiva.
 LEGACY_GRID_KEYS = (
@@ -40,177 +62,163 @@ LEGACY_GRID_KEYS = (
     "kernel",
 )
 
+CONTROL_KEYS = ("activation",)
+
+DEFAULT_INPUT_SHAPE = (96, 96, 3)
+DEFAULT_NUM_CLASSES = 2
+
 # Valores que reproduzem o MobileNetV1 de referência do MLPerf Tiny v1.0/v1.1.
 _DEFAULTS = {
     "alpha": 0.25,
     "middle_blocks": 5,
     "kernel_size": 3,
+    "reps_2": 1,
+    "reps_3": 1,
+    "reps_5": 1,
 }
 
-_REPRESENTATIVE_SAMPLES = 100
-_REPRESENTATIVE_SEED = 72
+# Largura base (alpha = 1) de cada grupo: stem, bloco 1, grupos 2..5.
+_BASE_FILTERS = {"stem": 32, "block1": 64, 2: 128, 3: 256, 4: 512, 5: 1024}
+_WIDTH_KEYS = ("width_stem", "width_2", "width_3", "width_4", "width_5")
 
 
-def _safe_tflite_filename(variant_name: str) -> str:
-    """Gera um nome de arquivo seguro e limitado para o .tflite."""
-    sanitized = "".join(
-        c if (c.isalnum() or c in ("-", "_", ".")) else "_"
-        for c in variant_name
-    )
-    if not sanitized:
-        sanitized = "model"
-    if len(sanitized) > 180:
-        digest = hashlib.sha1(variant_name.encode("utf-8")).hexdigest()[:16]
-        sanitized = f"model_{digest}"
-    return f"{sanitized}.tflite"
+def _get(config: dict, key: str, default):
+    value = config.get(key)
+    return default if value is None else value
 
 
-def _resolve_params(config: dict) -> tuple[float, int, int]:
-    """Resolve os hiperparâmetros suportando chaves canônicas e legadas."""
+def _resolve_alpha(config: dict) -> float:
     alpha = config.get("alpha")
     if alpha is None:
         init_ch = config.get("initial_channels")
-        if init_ch is not None:
-            alpha = float(init_ch) / 32.0
-        else:
-            alpha = _DEFAULTS["alpha"]
-    alpha = float(alpha)
-
-    middle_blocks = int(config.get("middle_blocks", _DEFAULTS["middle_blocks"]))
-    kernel_size = int(config.get("kernel_size", config.get("kernel", _DEFAULTS["kernel_size"])))
-
-    return alpha, middle_blocks, kernel_size
+        alpha = float(init_ch) / 32.0 if init_ch is not None else _DEFAULTS["alpha"]
+    return float(alpha)
 
 
 def _round_filters(filters: int, alpha: float, min_depth: int = 8) -> int:
-    """Calcula quantidade de filtros com base no multiplicador alpha."""
-    filters = int(filters * alpha)
-    return max(min_depth, int(filters))
+    """Quantidade de filtros com base no multiplicador alpha (regra do builder anterior)."""
+    return max(min_depth, int(filters * alpha))
+
+
+def _resolve_widths(config: dict) -> dict:
+    alpha = _resolve_alpha(config)
+    widths = {
+        "stem": _round_filters(_BASE_FILTERS["stem"], alpha),
+        "block1": _round_filters(_BASE_FILTERS["block1"], alpha),
+    }
+    for group in (2, 3, 4, 5):
+        widths[group] = _round_filters(_BASE_FILTERS[group], alpha)
+
+    if config.get("width_stem") is not None:
+        widths["stem"] = int(config["width_stem"])
+        widths["block1"] = 2 * widths["stem"]
+    for group in (2, 3, 4, 5):
+        if config.get(f"width_{group}") is not None:
+            widths[group] = int(config[f"width_{group}"])
+
+    for name, value in widths.items():
+        if value < 1:
+            raise ValueError(f"largura do grupo {name} deve ser >= 1; recebido {value}.")
+    return widths
+
+
+def superseded_keys(grid: dict) -> set:
+    """Chaves do GRID_KEYS que não têm efeito dado o grid (para o validate_grid)."""
+    return {"alpha"} if all(k in grid for k in _WIDTH_KEYS) else set()
+
+
+def canonicalize(config: dict) -> dict:
+    """Anula chaves inativas para que modelos iguais tenham o mesmo hash."""
+    config = canonicalize_activation(dict(config))
+    # Se todas as larguras são explícitas, alpha não influencia o modelo.
+    if "alpha" in config and all(config.get(k) is not None for k in _WIDTH_KEYS):
+        config["alpha"] = None
+    return config
+
+
+def resolve_input_shape(config: dict, input_shape=None) -> tuple[int, ...]:
+    shape = tuple(int(d) for d in (input_shape or DEFAULT_INPUT_SHAPE))
+    size = config.get("input_size")
+    if size is not None:
+        size = int(size)
+        if size < 8:
+            raise ValueError(f"input_size deve ser >= 8; recebido {size}.")
+        shape = (size, size, shape[2])
+    return shape
+
+
+def architecture(config: dict, input_shape=None, num_classes=None) -> GraphSpec:
+    input_shape = resolve_input_shape(config, input_shape)
+    num_classes = int(num_classes or DEFAULT_NUM_CLASSES)
+    act = resolve_activation(config)
+    widths = _resolve_widths(config)
+    kernel = int(_get(config, "kernel_size", _get(config, "kernel", _DEFAULTS["kernel_size"])))
+    middle = int(_get(config, "middle_blocks", _DEFAULTS["middle_blocks"]))
+    reps = {g: int(_get(config, f"reps_{g}", _DEFAULTS[f"reps_{g}"])) for g in (2, 3, 5)}
+    for name, value in [("middle_blocks", middle)] + [(f"reps_{g}", v) for g, v in reps.items()]:
+        if value < 0:
+            raise ValueError(f"{name} deve ser >= 0; recebido {value}.")
+
+    g = GraphSpec(input_shape, name="mobilenet_v1_variant")
+
+    # 1. Convolução inicial (32 * alpha canais, stride 2).
+    x = g.conv("initial_conv", g.input, widths["stem"], 3, 2)
+    x = g.bn("initial_conv_bn", x)
+    x = g.act("initial_conv_relu", x, act)
+
+    block_id = 0
+
+    def depthwise_block(t, filters, stride):
+        nonlocal block_id
+        block_id += 1
+        t = g.dwconv(f"block_{block_id}_dw", t, kernel, stride)
+        t = g.bn(f"block_{block_id}_dw_bn", t)
+        t = g.act(f"block_{block_id}_dw_relu", t, act)
+        t = g.conv(f"block_{block_id}_pw", t, filters, 1, 1)
+        t = g.bn(f"block_{block_id}_pw_bn", t)
+        return g.act(f"block_{block_id}_pw_relu", t, act)
+
+    # 2. Sequência de blocos MobileNetV1 (as repetições têm stride 1).
+    x = depthwise_block(x, widths["block1"], 1)
+    x = depthwise_block(x, widths[2], 2)
+    for _ in range(reps[2]):
+        x = depthwise_block(x, widths[2], 1)
+    x = depthwise_block(x, widths[3], 2)
+    for _ in range(reps[3]):
+        x = depthwise_block(x, widths[3], 1)
+    x = depthwise_block(x, widths[4], 2)
+    for _ in range(middle):
+        x = depthwise_block(x, widths[4], 1)
+    x = depthwise_block(x, widths[5], 2)
+    for _ in range(reps[5]):
+        x = depthwise_block(x, widths[5], 1)
+
+    # 3. Cabeça igual à referência oficial (AveragePooling2D + Flatten + Dense).
+    x = g.avgpool("head_pool", x, g.shape(x)[:2])
+    x = g.flatten("head_flatten", x)
+    g.dense("logits", x, num_classes, activation="softmax", bias_initializer="random_normal")
+    return g
+
+
+def estimate_cost(config: dict, input_shape=None, num_classes=None) -> dict:
+    """Custo analítico (params, MACs, pico de ativação, ops) sem TensorFlow."""
+    return architecture(config, input_shape, num_classes).summary()
+
+
+def build_keras_model(config: dict, input_shape=None, num_classes=None):
+    import tensorflow as tf
+
+    tf.keras.backend.clear_session()
+    return build_keras(architecture(config, input_shape, num_classes), "mobilenet_v1_variant")
 
 
 def build_and_quantize_model(
     config: dict,
     variant_name: str,
     tmp_dir: Path,
-    input_shape: tuple = (96, 96, 3),
-    num_classes: int = 2,
+    input_shape: tuple = DEFAULT_INPUT_SHAPE,
+    num_classes: int = DEFAULT_NUM_CLASSES,
 ) -> Path:
     """Constrói o MobileNetV1 configurável do MLPerf Tiny e quantiza para TFLite int8."""
-    tf.keras.backend.clear_session()
-
-    alpha, middle_blocks, kernel_size = _resolve_params(config)
-
-    input_shape = tuple(int(dim) for dim in input_shape)
-    num_classes = int(num_classes or 2)
-
-    # batch_size=1 deixa todas as formas estáticas, como nos .tflite oficiais;
-    # sem isso o Flatten vira SHAPE/STRIDED_SLICE/PACK/RESHAPE no grafo.
-    inputs = tf.keras.Input(shape=input_shape, batch_size=1, name="input")
-
-    # 1. Convolução Inicial pura: 32 * alpha (8 no caso de alpha=0.25)
-    first_filters = _round_filters(32, alpha)
-    x = tf.keras.layers.Conv2D(
-        first_filters,
-        kernel_size=3,
-        strides=2,
-        padding="same",
-        name="initial_conv",
-    )(inputs)
-    x = tf.keras.layers.BatchNormalization(name="initial_conv_bn")(x)
-    x = tf.keras.layers.Activation("relu", name="initial_conv_relu")(x)
-
-    def depthwise_block(tensor, point_filters: int, stride: int, block_id: int):
-        pw_ch = _round_filters(point_filters, alpha)
-        # Depthwise
-        tensor = tf.keras.layers.DepthwiseConv2D(
-            kernel_size=kernel_size,
-            strides=stride,
-            padding="same",
-            name=f"block_{block_id}_dw",
-        )(tensor)
-        tensor = tf.keras.layers.BatchNormalization(name=f"block_{block_id}_dw_bn")(tensor)
-        tensor = tf.keras.layers.Activation("relu", name=f"block_{block_id}_dw_relu")(tensor)
-
-        # Pointwise
-        tensor = tf.keras.layers.Conv2D(
-            pw_ch,
-            kernel_size=1,
-            strides=1,
-            padding="same",
-            name=f"block_{block_id}_pw",
-        )(tensor)
-        tensor = tf.keras.layers.BatchNormalization(name=f"block_{block_id}_pw_bn")(tensor)
-        tensor = tf.keras.layers.Activation("relu", name=f"block_{block_id}_pw_relu")(tensor)
-        return tensor
-
-    # 2. Sequência de Blocos MobileNetV1
-    # Bloco 1 (stride 1, 64 * alpha -> 16)
-    x = depthwise_block(x, 64, stride=1, block_id=1)
-    # Bloco 2 (stride 2, 128 * alpha -> 32)
-    x = depthwise_block(x, 128, stride=2, block_id=2)
-    # Bloco 3 (stride 1, 128 * alpha -> 32)
-    x = depthwise_block(x, 128, stride=1, block_id=3)
-    # Bloco 4 (stride 2, 256 * alpha -> 64)
-    x = depthwise_block(x, 256, stride=2, block_id=4)
-    # Bloco 5 (stride 1, 256 * alpha -> 64)
-    x = depthwise_block(x, 256, stride=1, block_id=5)
-    # Bloco 6 (stride 2, 512 * alpha -> 128)
-    x = depthwise_block(x, 512, stride=2, block_id=6)
-
-    # Blocos Centrais repetidos (padrão 5 blocos, stride 1, 512 * alpha -> 128)
-    curr_id = 7
-    for _ in range(middle_blocks):
-        x = depthwise_block(x, 512, stride=1, block_id=curr_id)
-        curr_id += 1
-
-    # Bloco Penúltimo (stride 2, 1024 * alpha -> 256)
-    x = depthwise_block(x, 1024, stride=2, block_id=curr_id)
-    curr_id += 1
-    # Bloco Final (stride 1, 1024 * alpha -> 256)
-    x = depthwise_block(x, 1024, stride=1, block_id=curr_id)
-
-    # 3. Cabeça de Classificação, igual à referência oficial (vww_model.py do
-    # MLPerf Tiny): AveragePooling2D do tamanho do mapa final + Flatten + Dense.
-    # GlobalAveragePooling2D faz a mesma conta, mas vira MEAN no .tflite em vez
-    # de AVERAGE_POOL_2D, o que muda o que CPU/NPU executam.
-    x = tf.keras.layers.AveragePooling2D(
-        pool_size=tuple(int(d) for d in x.shape[1:3]), name="head_pool"
-    )(x)
-    x = tf.keras.layers.Flatten(name="head_flatten")(x)
-    # Bias aleatório: com bias zero (inicialização padrão) o conversor o
-    # descarta, e o modelo treinado oficial tem bias.
-    outputs = tf.keras.layers.Dense(
-        num_classes,
-        activation="softmax",
-        bias_initializer="random_normal",
-        name="logits",
-    )(x)
-
-    model = tf.keras.Model(inputs=inputs, outputs=outputs, name=variant_name)
-
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-
-    def representative_dataset_gen():
-        rng = np.random.default_rng(_REPRESENTATIVE_SEED)
-        for _ in range(_REPRESENTATIVE_SAMPLES):
-            data = rng.uniform(
-                0.0,
-                1.0,
-                size=(1,) + input_shape,
-            ).astype(np.float32)
-            yield [data]
-
-    converter.representative_dataset = representative_dataset_gen
-    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-    converter.inference_input_type = tf.int8
-    converter.inference_output_type = tf.int8
-    # Os .tflite oficiais têm FULLY_CONNECTED quantizado por tensor; o TF atual
-    # quantiza camadas densas por canal por padrão.
-    converter._experimental_disable_per_channel_quantization_for_dense_layers = True
-
-    tflite_bytes = converter.convert()
-    tflite_path = tmp_dir / _safe_tflite_filename(variant_name)
-    tflite_path.write_bytes(tflite_bytes)
-
-    return tflite_path
+    model = build_keras_model(config, input_shape, num_classes)
+    return quantize_to_tflite(model, variant_name, tmp_dir)

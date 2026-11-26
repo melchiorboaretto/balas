@@ -21,6 +21,12 @@ artifacts/phase1_image_classification/generated/
 artifacts/stedgeai-sanity/
 artifacts/*.csv
 artifacts/*.md
+# Resultados de DSE por placa (output_csv/output_map com {target}) e do dry-run
+artifacts/nxp/
+artifacts/stm32/
+artifacts/nordic/
+artifacts/dryrun/
+artifacts/*_dryrun.*
 assets/*.zip
 assets/*.crdownload
 cpp-project/stm32-tflite-test/build*/

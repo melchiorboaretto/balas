@@ -1,18 +1,53 @@
+# ===========================================================================
+# DSE — Anomaly Detection (Deep Autoencoder do MLPerf Tiny), espaço na casa dos milhões
+# ===========================================================================
+# Números (python_scripts/dse/space_report.py, Monte Carlo com 30.000 amostras):
+#   grid bruto ........ 75.497.472 combinações
+#   distintos ......... 4.855.200 modelos (larguras de camadas que não existem
+#                       e leaky_slope fora do leaky_relu não contam)
+#   na faixa .......... ~4,15 milhões (params entre 0,3x e 3,5x a referência)
+#   mistura estimada .. cabe nas 3 placas ~93% | em algumas ~6% | em nenhuma ~1%
+#
+# O autoencoder só tem camadas densas: o custo é praticamente o nº de pesos,
+# e a RAM de ativação é mínima (< 2 KB). Ele só deixa de caber por flash.
+#
+# Referência (defaults = MLPerf Tiny v1.0/v1.1): 265.864 params, 264.192 MACs.
+# Entrada 640, 4 camadas de 128 no encoder, gargalo de 8, 4 camadas de 128 no
+# decoder, saída linear de 640, ReLU.
+
 [experiment]
 name = "dse_ad"
 benchmark = "anomaly_detection"
 base_seed = 72
 profiling_samples = 10
-output_csv = "artifacts/ad_database.csv"
-output_map = "artifacts/ad_map.json"
+output_csv = "artifacts/{target}/dse_ad.csv"
+output_map = "artifacts/{target}/dse_ad_map.json"
 
 [hyperparameters.grid]
-# Largura das camadas ocultas (MLPerf Tiny referência = 128)
-hidden_units = [32, 64, 96, 128, 160, 192, 256]
-# Largura do afunilamento central / bottleneck (MLPerf Tiny referência = 8)
-bottleneck_units = [4, 8, 12, 16, 24, 32, 48, 64]
-# Profundidade: número de camadas densas no encoder e no decoder (MLPerf Tiny referência = 4)
-num_hidden_layers = [2, 3, 4, 5]
+# Profundidade separada do encoder e do decoder.
+enc_layers = [1, 2, 3, 4]
+dec_layers = [1, 2, 3, 4]
+
+# Largura de cada camada. enc_units_1 é a mais próxima da entrada; dec_units_1 é
+# a mais próxima do gargalo. Larguras de camadas que não existem são ignoradas.
+enc_units_1 = [64, 128, 256, 512]
+enc_units_2 = [64, 128, 256, 512]
+enc_units_3 = [64, 128, 256, 512]
+enc_units_4 = [64, 128, 256, 512]
+dec_units_1 = [64, 128, 256, 512]
+dec_units_2 = [64, 128, 256, 512]
+dec_units_3 = [64, 128, 256, 512]
+dec_units_4 = [64, 128, 256, 512]
+
+# Largura do gargalo (referência 8).
+bottleneck_units = [4, 8, 12, 16, 24, 32]
+
+# Função de ativação das camadas ocultas (a saída continua linear).
+activation = ["relu", "relu6", "leaky_relu", "hard_swish", "sigmoid", "tanh"]
+leaky_slope = [0.1, 0.3]
+
+[hyperparameters.constraints]
+params_ratio = [0.3, 3.5]
 
 [model_specs]
 input_shape = [1, 640]

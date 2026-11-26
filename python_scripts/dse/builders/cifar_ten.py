@@ -1,21 +1,26 @@
-import hashlib
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-import tensorflow as tf
+from python_scripts.dse.builders._graph import (
+    ACTIVATION_GRID_KEYS,
+    GraphSpec,
+    build_keras,
+    canonicalize_activation,
+    quantize_to_tflite,
+    resolve_activation,
+)
 
 
 # Builder DSE do CIFAR-10 baseado no ResNet8 do MLPerf Tiny.
 #
 # A topologia é sempre um DAG com três estágios residuais: o tensor se divide
 # em ramo principal e atalho, os dois caminhos se encontram em um Add e o
-# resultado recebe ReLU. O grid controla apenas largura, kernel, profundidade,
-# stride e tipo de bloco. BatchNorm, ReLU, atalho automático, GAP e softmax
-# ficam fixos para manter o espaço próximo do grid anterior.
+# resultado recebe a ativação. O grid controla largura, kernel, profundidade,
+# stride, tipo de bloco e a função de ativação (global, para a rede inteira).
+# BatchNorm, atalho automático, GAP e softmax ficam fixos.
 GRID_KEYS = (
     "channels_1",
     "kernel_1",
@@ -33,6 +38,16 @@ GRID_KEYS = (
     "stride_3",
     "block_type_3",
 )
+
+# Chaves aceitas, mas que podem faltar no grid sem aviso: o default reproduz a
+# referência (ativação relu).
+OPTIONAL_GRID_KEYS = ACTIVATION_GRID_KEYS
+
+# Chaves cujo valor decide se outras chaves estão ativas (usado no space_report).
+CONTROL_KEYS = ("activation",)
+
+DEFAULT_INPUT_SHAPE = (32, 32, 3)
+DEFAULT_NUM_CLASSES = 10
 
 # Valores que reproduzem o ResNet8 de referência do MLPerf Tiny v1.1.
 _DEFAULTS = {
@@ -53,12 +68,11 @@ _DEFAULTS = {
     "block_type_3": "basic",
 }
 
-# Constantes fixas do modelo. Não entram no grid para não inflar a busca com
-# combinações que não mudam a topologia mensurada.
+# Constantes fixas do modelo. Não entram no grid porque não mudam o custo no
+# dispositivo (regularização e inicialização não existem no .tflite).
 _L2_STRENGTH = 1e-4
 _KERNEL_INITIALIZER = "he_normal"
-_REPRESENTATIVE_SAMPLES = 100
-_REPRESENTATIVE_SEED = 72
+_CONV_KERAS = dict(kernel_initializer=_KERNEL_INITIALIZER, l2=_L2_STRENGTH)
 
 
 @dataclass(frozen=True)
@@ -75,7 +89,8 @@ class StageConfig:
 
 def _setting(config: dict, key: str):
     """Lê uma chave do grid ou devolve o valor de referência."""
-    return config.get(key, _DEFAULTS[key])
+    value = config.get(key)
+    return _DEFAULTS[key] if value is None else value
 
 
 def _parse_block_type(value: str) -> tuple[str, int]:
@@ -94,21 +109,15 @@ def _parse_block_type(value: str) -> tuple[str, int]:
             ) from exc
 
         if ratio < 2:
-            raise ValueError(
-                f"bottleneck_N exige N >= 2; recebido {value!r}."
-            )
+            raise ValueError(f"bottleneck_N exige N >= 2; recebido {value!r}.")
         return "bottleneck", ratio
 
-    raise ValueError(
-        f"block_type inválido: {value!r}. Use 'basic' ou 'bottleneck_N'."
-    )
+    raise ValueError(f"block_type inválido: {value!r}. Use 'basic' ou 'bottleneck_N'.")
 
 
 def _parse_stage(config: dict, index: int) -> StageConfig:
     """Lê e valida os parâmetros de um estágio."""
-    block_type, bottleneck_ratio = _parse_block_type(
-        _setting(config, f"block_type_{index}")
-    )
+    block_type, bottleneck_ratio = _parse_block_type(_setting(config, f"block_type_{index}"))
 
     stage = StageConfig(
         channels=int(_setting(config, f"channels_{index}")),
@@ -119,276 +128,107 @@ def _parse_stage(config: dict, index: int) -> StageConfig:
         bottleneck_ratio=bottleneck_ratio,
     )
 
-    if stage.channels < 1:
-        raise ValueError(f"channels_{index} deve ser >= 1; recebido {stage.channels}.")
-    if stage.kernel < 1:
-        raise ValueError(f"kernel_{index} deve ser >= 1; recebido {stage.kernel}.")
-    if stage.blocks < 1:
-        raise ValueError(f"blocks_{index} deve ser >= 1; recebido {stage.blocks}.")
-    if stage.stride < 1:
-        raise ValueError(f"stride_{index} deve ser >= 1; recebido {stage.stride}.")
+    for field_name in ("channels", "kernel", "blocks", "stride"):
+        value = getattr(stage, field_name)
+        if value < 1:
+            raise ValueError(f"{field_name}_{index} deve ser >= 1; recebido {value}.")
 
     return stage
 
 
-def _conv_bn(
-    x: tf.Tensor,
-    filters: int,
-    kernel_size: int,
-    strides: int,
-    *,
-    relu: bool,
-    name: str,
-) -> tf.Tensor:
-    """Conv2D + BatchNorm + ReLU opcional.
+def canonicalize(config: dict) -> dict:
+    """Anula chaves inativas para que modelos iguais tenham o mesmo hash."""
+    return canonicalize_activation(dict(config))
 
-    O último conv de um bloco residual usa relu=False para chegar sem ativação
-    até a soma com o atalho.
-    """
-    # Convolução: extrai features e, com strides > 1, faz o downsampling.
-    x = tf.keras.layers.Conv2D(
-        filters=filters,
-        kernel_size=kernel_size,
-        strides=strides,
-        padding="same",
-        use_bias=True,
-        kernel_initializer=_KERNEL_INITIALIZER,
-        kernel_regularizer=tf.keras.regularizers.l2(_L2_STRENGTH),
-        name=f"{name}_conv",
-    )(x)
 
-    # BatchNorm: normaliza por canal; em inferência usa médias/variâncias móveis.
-    x = tf.keras.layers.BatchNormalization(name=f"{name}_bn")(x)
-
-    # ReLU: não-linearidade padrão do ResNet8.
-    if relu:
-        x = tf.keras.layers.ReLU(name=f"{name}_relu")(x)
-
+def _conv_bn(g, x, filters, kernel, strides, *, act, name):
+    """Conv2D + BatchNorm + ativação opcional (act=None no fim do bloco)."""
+    x = g.conv(f"{name}_conv", x, filters, kernel, strides, **_CONV_KERAS)
+    x = g.bn(f"{name}_bn", x)
+    if act is not None:
+        x = g.act(f"{name}_relu", x, act)
     return x
 
 
-def _projection_shortcut(
-    x: tf.Tensor,
-    filters: int,
-    strides: int,
-    *,
-    name: str,
-) -> tf.Tensor:
-    """Atalho 1x1 para igualar canais e/ou resolução antes do Add."""
-    return tf.keras.layers.Conv2D(
-        filters=filters,
-        kernel_size=1,
-        strides=strides,
-        padding="same",
-        use_bias=True,
-        kernel_initializer=_KERNEL_INITIALIZER,
-        kernel_regularizer=tf.keras.regularizers.l2(_L2_STRENGTH),
-        name=f"{name}_conv",
-    )(x)
-
-
-def _build_shortcut(
-    x: tf.Tensor,
-    filters: int,
-    strides: int,
-    *,
-    name: str,
-) -> tf.Tensor:
-    """Atalho automático: identity se o formato bate, projeção caso contrário."""
-    if strides == 1 and int(x.shape[-1]) == filters:
-        return x
-
-    return _projection_shortcut(x, filters, strides, name=name)
-
-
-def _residual_block(
-    x: tf.Tensor,
-    stage: StageConfig,
-    *,
-    strides: int,
-    name: str,
-) -> tf.Tensor:
-    """Bloco residual: ramo principal + atalho + Add + ReLU."""
+def _residual_block(g, x, stage: StageConfig, *, strides, act, name):
+    """Bloco residual: ramo principal + atalho + Add + ativação."""
     if stage.block_type == "basic":
-        # Basic block: dois convs espaciais. O segundo não tem ReLU antes do Add.
-        y = _conv_bn(
-            x,
-            stage.channels,
-            stage.kernel,
-            strides,
-            relu=True,
-            name=f"{name}_conv1",
-        )
-        y = _conv_bn(
-            y,
-            stage.channels,
-            stage.kernel,
-            1,
-            relu=False,
-            name=f"{name}_conv2",
-        )
+        y = _conv_bn(g, x, stage.channels, stage.kernel, strides, act=act, name=f"{name}_conv1")
+        y = _conv_bn(g, y, stage.channels, stage.kernel, 1, act=None, name=f"{name}_conv2")
     else:
-        # Bottleneck: 1x1 reduz, conv espacial processa, 1x1 expande.
-        inner_channels = max(1, stage.channels // stage.bottleneck_ratio)
-        y = _conv_bn(
-            x,
-            inner_channels,
-            1,
-            strides,
-            relu=True,
-            name=f"{name}_reduce",
-        )
-        y = _conv_bn(
-            y,
-            inner_channels,
-            stage.kernel,
-            1,
-            relu=True,
-            name=f"{name}_spatial",
-        )
-        y = _conv_bn(
-            y,
-            stage.channels,
-            1,
-            1,
-            relu=False,
-            name=f"{name}_expand",
+        inner = max(1, stage.channels // stage.bottleneck_ratio)
+        y = _conv_bn(g, x, inner, 1, strides, act=act, name=f"{name}_reduce")
+        y = _conv_bn(g, y, inner, stage.kernel, 1, act=act, name=f"{name}_spatial")
+        y = _conv_bn(g, y, stage.channels, 1, 1, act=None, name=f"{name}_expand")
+
+    # Atalho automático: identity se a forma bate, Conv1x1 caso contrário.
+    if strides == 1 and g.shape(x)[-1] == stage.channels:
+        shortcut = x
+    else:
+        shortcut = g.conv(
+            f"{name}_shortcut_conv", x, stage.channels, 1, strides, **_CONV_KERAS
         )
 
-    # Atalho: identity ou Conv1x1 com o mesmo stride do ramo principal.
-    shortcut = _build_shortcut(
-        x,
-        stage.channels,
-        strides,
-        name=f"{name}_shortcut",
+    x = g.add(f"{name}_add", shortcut, y)
+    return g.act(f"{name}_relu", x, act)
+
+
+def resolve_input_shape(config: dict, input_shape=None) -> tuple[int, ...]:
+    return tuple(int(d) for d in (input_shape or DEFAULT_INPUT_SHAPE))
+
+
+def architecture(config: dict, input_shape=None, num_classes=None) -> GraphSpec:
+    """Descreve o ResNet8 configurável (mesma topologia do builder anterior)."""
+    input_shape = resolve_input_shape(config, input_shape)
+    num_classes = int(num_classes or DEFAULT_NUM_CLASSES)
+    act = resolve_activation(config)
+    g = GraphSpec(input_shape, name="resnet8_variant")
+
+    # O stem usa a largura e o kernel do estágio 1, como no ResNet8 de referência.
+    stage_1 = _parse_stage(config, 1)
+    x = _conv_bn(g, g.input, stage_1.channels, stage_1.kernel, 1, act=act, name="stem")
+
+    for index in (1, 2, 3):
+        stage = _parse_stage(config, index)
+        for block in range(stage.blocks):
+            x = _residual_block(
+                g, x, stage,
+                strides=stage.stride if block == 0 else 1,
+                act=act,
+                name=f"stage{index}_block{block + 1}",
+            )
+
+    pool = min(g.shape(x)[:2])
+    x = g.avgpool("head_pool", x, pool)
+    x = g.flatten("head_flatten", x)
+    # Bias aleatório: com bias zero o conversor o descarta, e o oficial tem bias.
+    g.dense(
+        "predictions", x, num_classes, activation="softmax",
+        kernel_initializer=_KERNEL_INITIALIZER, bias_initializer="random_normal",
+        l2=_L2_STRENGTH,
     )
-
-    # Fan-in dos dois caminhos. As formas já foram equalizadas pelo atalho.
-    x = tf.keras.layers.Add(name=f"{name}_add")([shortcut, y])
-
-    # Ativação após a soma residual.
-    return tf.keras.layers.ReLU(name=f"{name}_relu")(x)
+    return g
 
 
-def _build_stage(
-    x: tf.Tensor,
-    stage: StageConfig,
-    *,
-    stage_index: int,
-) -> tf.Tensor:
-    """Constrói os blocos de um estágio.
-
-    Só o primeiro bloco usa o stride do estágio; os seguintes usam stride 1.
-    """
-    for block_index in range(stage.blocks):
-        block_strides = stage.stride if block_index == 0 else 1
-        x = _residual_block(
-            x,
-            stage,
-            strides=block_strides,
-            name=f"stage{stage_index}_block{block_index + 1}",
-        )
-
-    return x
+def estimate_cost(config: dict, input_shape=None, num_classes=None) -> dict:
+    """Custo analítico (params, MACs, pico de ativação, ops) sem TensorFlow."""
+    return architecture(config, input_shape, num_classes).summary()
 
 
-def _safe_tflite_filename(variant_name: str) -> str:
-    """Gera um nome seguro para o .tflite, mesmo com muitas chaves no grid."""
-    sanitized = "".join(
-        char if char.isalnum() or char in "-_." else "_"
-        for char in variant_name
-    )
-    if not sanitized:
-        sanitized = "model"
+def build_keras_model(config: dict, input_shape=None, num_classes=None):
+    import tensorflow as tf
 
-    # O nome completo pode passar do limite de 255 bytes do filesystem.
-    if len(sanitized) > 180:
-        digest = hashlib.sha1(variant_name.encode("utf-8")).hexdigest()[:16]
-        sanitized = f"model_{digest}"
-
-    return f"{sanitized}.tflite"
+    tf.keras.backend.clear_session()
+    return build_keras(architecture(config, input_shape, num_classes), "resnet8_variant")
 
 
 def build_and_quantize_model(
     config: dict,
     variant_name: str,
     tmp_dir: Path,
-    input_shape: tuple = (32, 32, 3),
-    num_classes: int = 10,
+    input_shape: tuple = DEFAULT_INPUT_SHAPE,
+    num_classes: int = DEFAULT_NUM_CLASSES,
 ) -> Path:
     """Constrói o ResNet8 configurável e quantiza para TFLite int8."""
-    tf.keras.backend.clear_session()
-
-    input_shape = tuple(int(dim) for dim in input_shape)
-    num_classes = int(num_classes or 10)
-
-    # O stem usa a largura e o kernel do estágio 1. No ResNet8 de referência
-    # ambos têm 16 canais e kernel 3x3, então isso preserva o ponto padrão sem
-    # adicionar uma chave extra ao grid.
-    stage_1 = _parse_stage(config, 1)
-    # batch_size=1 deixa todas as formas estáticas, como nos .tflite oficiais;
-    # sem isso o Flatten vira SHAPE/STRIDED_SLICE/PACK/RESHAPE no grafo.
-    inputs = tf.keras.Input(shape=input_shape, batch_size=1, name="input")
-    x = _conv_bn(
-        inputs,
-        stage_1.channels,
-        stage_1.kernel,
-        1,
-        relu=True,
-        name="stem",
-    )
-
-    # Três estágios residuais. Cada um adiciona um ou mais blocos com Add.
-    for stage_index in (1, 2, 3):
-        stage = _parse_stage(config, stage_index)
-        x = _build_stage(x, stage, stage_index=stage_index)
-
-    # Cabeça fixa do ResNet8: pooling global, Flatten, Dense e softmax.
-    pool_size = int(np.amin(x.shape[1:3]))
-    x = tf.keras.layers.AveragePooling2D(pool_size=pool_size, name="head_pool")(x)
-    x = tf.keras.layers.Flatten(name="head_flatten")(x)
-    outputs = tf.keras.layers.Dense(
-        num_classes,
-        activation="softmax",
-        use_bias=True,
-        kernel_initializer=_KERNEL_INITIALIZER,
-        # Bias aleatório: com bias zero (inicialização padrão) o conversor o
-        # descarta, e o modelo treinado oficial tem bias.
-        bias_initializer="random_normal",
-        kernel_regularizer=tf.keras.regularizers.l2(_L2_STRENGTH),
-        name="predictions",
-    )(x)
-
-    model = tf.keras.Model(inputs=inputs, outputs=outputs, name="resnet8_variant")
-
-    # Quantização int8 com o mesmo esquema de calibração sintética do builder
-    # anterior. Pesos e amostras aleatórios servem para medir MACs/latência/
-    # arena; a acurácia resultante não é representativa.
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
-
-    def representative_dataset_gen():
-        rng = np.random.default_rng(_REPRESENTATIVE_SEED)
-
-        for _ in range(_REPRESENTATIVE_SAMPLES):
-            data = rng.uniform(
-                0.0,
-                1.0,
-                size=(1,) + input_shape,
-            ).astype(np.float32)
-
-            yield [data]
-
-    converter.representative_dataset = representative_dataset_gen
-    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-    converter.inference_input_type = tf.int8
-    converter.inference_output_type = tf.int8
-    # Os .tflite oficiais têm FULLY_CONNECTED quantizado por tensor; o TF atual
-    # quantiza camadas densas por canal por padrão.
-    converter._experimental_disable_per_channel_quantization_for_dense_layers = True
-
-    tflite_bytes = converter.convert()
-    tflite_path = tmp_dir / _safe_tflite_filename(variant_name)
-    tflite_path.write_bytes(tflite_bytes)
-
-    return tflite_path
+    model = build_keras_model(config, input_shape, num_classes)
+    return quantize_to_tflite(model, variant_name, tmp_dir)

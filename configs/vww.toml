@@ -1,18 +1,62 @@
+# ===========================================================================
+# DSE — Visual Wake Words (MobileNetV1 0.25 do MLPerf Tiny), espaço na casa dos milhões
+# ===========================================================================
+# Números (python_scripts/dse/space_report.py, Monte Carlo com 30.000 amostras):
+#   grid bruto ........ 7.200.000 combinações
+#   distintos ......... 4.200.000 modelos
+#   na faixa .......... ~3,68 milhões (params entre 0,3x e 3x a referência)
+#   mistura estimada .. firmware atual: cabe nas 3 placas 0% | em algumas ~53% | em nenhuma ~47%
+#                       com heap da NXP aumentado (--no-heap-limit):
+#                       cabe nas 3 placas ~14% | em algumas ~79% | em nenhuma ~7%
+#
+# Limites que vêm do firmware, não do chip (registrar nos resultados):
+# * NXP: o buffer float de entrada sai de um heap fixo de 32 KB (.cproject,
+#   Heap 0x8000); a menor VWW (64x64x3 x 4 B = 48 KB) já não cabe.
+# * STM32: o linker usa só 128 KB de DTCM e a entrada fica em float32
+#   (96x96x3 x 4 B = 110,6 KB só de buffer).
+#
+# Referência (defaults = MLPerf Tiny v1.0/v1.1): 210.850 params, 7.489.664 MACs,
+# pico de ativação 55.296 B, mas o GreedyMemoryPlanner do TFLM usa 73.728 B
+# (fragmentação; medido no TFLM real). Entrada 96x96x3, larguras 8/16/32/64/128/256,
+# 5 blocos centrais, kernel 3, ReLU.
+
 [experiment]
 name = "dse_vww"
 benchmark = "visual_wake_words"
 base_seed = 72
 profiling_samples = 10
-output_csv = "artifacts/vww_database.csv"
-output_map = "artifacts/vww_map.json"
+output_csv = "artifacts/{target}/dse_vww.csv"
+output_map = "artifacts/{target}/dse_vww_map.json"
 
 [hyperparameters.grid]
-# Multiplicador de largura MobileNet (MLPerf Tiny referência = 0.25, gerando filtros base 8/16/32/64/128/256)
-alpha = [0.125, 0.1875, 0.25, 0.3125, 0.375, 0.5]
-# Quantidade de blocos repetidos no estágio central de 128 canais (MLPerf Tiny referência = 5, totalizando 13 blocos)
-middle_blocks = [1, 2, 3, 4, 5]
-# Tamanho do filtro convolucional depthwise (MLPerf Tiny referência = 3)
+# Resolução da entrada (quadrada, 3 canais). Muda MACs e RAM, não os params.
+input_size = [64, 80, 96, 112, 128]
+
+# Canais de cada grupo de estágios (substituem o alpha):
+#   width_stem: conv inicial (o bloco 1 usa 2x); referência 8
+#   width_2: blocos 2-3 (ref. 32)   width_3: blocos 4-5 (ref. 64)
+#   width_4: bloco 6 + centrais (ref. 128)   width_5: blocos 12-13 (ref. 256)
+width_stem = [4, 8, 12]
+width_2 = [16, 24, 32, 40, 48]
+width_3 = [32, 48, 64, 80, 96]
+width_4 = [64, 96, 128, 160, 192]
+width_5 = [128, 192, 256, 320, 384]
+
+# Kernel de todos os depthwise.
 kernel_size = [3, 5]
+
+# Repetições com stride 1 em cada grupo (referência: 1, 1, 5, 1).
+reps_2 = [0, 1]
+reps_3 = [0, 1]
+middle_blocks = [1, 3, 5, 7]
+reps_5 = [0, 1]
+
+# Função de ativação da rede inteira (ver comentário em cifar_10.toml).
+activation = ["relu", "relu6", "leaky_relu", "hard_swish", "sigmoid", "tanh"]
+leaky_slope = [0.1, 0.3]
+
+[hyperparameters.constraints]
+params_ratio = [0.3, 3.0]
 
 [model_specs]
 input_shape = [96, 96, 3]

@@ -31,19 +31,29 @@ def validate_grid(builder_module: ModuleType, grid: dict) -> list[str]:
     """
     declared = set(getattr(builder_module, "GRID_KEYS", ()))
     legacy = set(getattr(builder_module, "LEGACY_GRID_KEYS", ()))
+    # Chaves opcionais: aceitas, mas a ausência não gera aviso (o default
+    # reproduz a referência do MLPerf Tiny).
+    optional = set(getattr(builder_module, "OPTIONAL_GRID_KEYS", ()))
     if not declared:
         return []
 
     builder_name = builder_module.__name__.rsplit(".", 1)[-1]
     warnings = []
 
-    unknown = sorted(set(grid) - declared - legacy)
+    unknown = sorted(set(grid) - declared - legacy - optional)
     if unknown:
         warnings.append(
             f"chaves do grid ignoradas pelo builder '{builder_name}': {unknown}"
         )
 
-    missing = sorted(declared - set(grid))
+    # Chaves que ficam sem efeito por causa de outras chaves do grid (ex.: alpha
+    # quando todas as larguras width_* estão no grid) não contam como ausentes.
+    superseded = set()
+    superseded_fn = getattr(builder_module, "superseded_keys", None)
+    if callable(superseded_fn):
+        superseded = set(superseded_fn(grid))
+
+    missing = sorted(declared - set(grid) - superseded)
     if missing:
         warnings.append(
             f"chaves ausentes no grid, o builder '{builder_name}' usara os valores default: {missing}"
