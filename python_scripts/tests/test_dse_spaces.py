@@ -356,6 +356,11 @@ class TestConfigCheckpointErrors(unittest.TestCase):
         cases = {
             "": False,
             "Command '['./compile.sh']' returned non-zero exit status 1.": False,
+            "compile.sh: memory_overflow (exit 1): region `RAM' overflowed by 12 bytes": False,
+            "compile.sh: build_error (exit 1): error: 'AddGelu' is not a member": False,
+            "compile.sh: env_error (exit 3): nRF Util not found: nrfutil": True,
+            # Gravada antes do env_error existir (última linha da checagem do SDK).
+            "compile.sh: build_error (exit 1): Install it with: /x/nrfutil sdk-manager install v3.4.0": True,
             "build_failure: ValueError ...": False,
             "runtime_failure: serial_failure: Did not receive 4 bytes from device": False,
             "Command '['./deploy.sh']' returned non-zero exit status 1.": True,
@@ -368,6 +373,7 @@ class TestConfigCheckpointErrors(unittest.TestCase):
         self.assertTrue(rab.is_runtime_failure_candidate("serial_failure: timeout"))
         self.assertFalse(rab.is_runtime_failure_candidate("Command '['./deploy.sh']' failed"))
         self.assertFalse(rab.is_runtime_failure_candidate("compile.sh"))
+        self.assertFalse(rab.is_runtime_failure_candidate("compile.sh: env_error (exit 3): x"))
 
     def test_duration_validation(self):
         from python_scripts.run_continuous_experiment import validate_duration
@@ -508,6 +514,38 @@ class TestRunAllBenchmarksLoop(unittest.TestCase):
         self.assertEqual(len(calls), 3)  # tentativa inicial + 2 repetições
         self.assertTrue(row["error"].startswith("runtime_failure: serial_failure:"))
 
+    def test_compile_env_error_is_retried_until_success(self):
+        env = "compile.sh: env_error (exit 3): nRF Connect SDK v3.4.0 not listed by 'nrfutil sdk-manager list'."
+        calls, row = self._run([env, env, ""], ["--max-runtime-retries", "0"])
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(row["error"], "")
+
+    def test_legacy_compile_env_error_is_retried(self):
+        """Texto antigo da checagem do SDK (gravado como build_error) também é refeito."""
+        legacy = ("compile.sh: build_error (exit 1): Install it with: "
+                  "/x/nrfutil sdk-manager install v3.4.0")
+        calls, row = self._run([legacy, ""], ["--max-runtime-retries", "0"])
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(row["error"], "")
+
+    def test_existing_legacy_env_error_row_is_rolled_back(self):
+        """Uma CSV que já tem a linha antiga é refeita ao religar o loop."""
+        import run_all_benchmarks as rab
+
+        legacy = ("compile.sh: build_error (exit 1): Install it with: "
+                  "/x/nrfutil sdk-manager install v3.4.0")
+        cfg = load_dse_config(self.configs / "kws_reference.toml", target=DRY_RUN_TARGET)
+        sample = sample_config(cfg, get_builder_module(cfg["benchmark"]), cfg["base_seed"])
+        CheckpointManager(cfg["output_csv"], cfg["output_map"]).save_result(
+            0, sample.hash_id, sample.variant_name, sample.hp_list, sample.config, legacy, 1000, 2000, None,
+        )
+        meta = {"dse_cfg": cfg, "builder": get_builder_module(cfg["benchmark"]),
+                "toml_path": self.configs / "kws_reference.toml"}
+        self.assertEqual(rab.check_config_iteration_status(meta, 0), (False, True, legacy))
+        calls, row = self._run([""])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(row["error"], "")
+
     def test_deploy_failure_is_retried_until_success(self):
         deploy = "Command '['./deploy.sh']' returned non-zero exit status 1."
         calls, row = self._run([deploy, deploy, deploy, deploy, ""], ["--max-runtime-retries", "0"])
@@ -531,6 +569,76 @@ class TestRunAllBenchmarksLoop(unittest.TestCase):
         self.assertEqual(classify_compile_output("section `.bss' will not fit in region `DTCMRAM'"),
                          "memory_overflow")
         self.assertEqual(classify_compile_output("error: 'AddGelu' is not a member"), "build_error")
+        self.assertEqual(
+            classify_compile_output("Install it with: nrfutil sdk-manager install v3.4.0\n"
+                                    "BALAS_ENV_ERROR: nRF Connect SDK v3.4.0 not listed"),
+            "env_error",
+        )
+
+
+class TestCompileScriptEnvErrors(unittest.TestCase):
+    """compile.sh acusa ambiente quebrado com exit 3 + BALAS_ENV_ERROR (sem compilar nada)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="balas_compile_env_"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _compile(self, **env):
+        import subprocess
+
+        full_env = {**os.environ, "BALAS_CONFIG_FILE": str(self.tmp / "none.env"), **env}
+        return subprocess.run(
+            [str(REPO_ROOT / "compile.sh")], cwd=REPO_ROOT, env=full_env,
+            capture_output=True, text=True, timeout=60,
+        )
+
+    def _fake_nrfutil(self, listing: str) -> Path:
+        fake = self.tmp / "nrfutil"
+        fake.write_text(f"#!/usr/bin/env bash\nprintf '%s\\n' {listing!r}\n")
+        fake.chmod(0o755)
+        return fake
+
+    def test_unsupported_target(self):
+        proc = self._compile(BALAS_TARGET="bogus")
+        self.assertEqual(proc.returncode, 3)
+        self.assertIn("BALAS_ENV_ERROR: Unsupported BALAS_TARGET: bogus", proc.stderr)
+
+    def test_missing_nrfutil(self):
+        proc = self._compile(BALAS_TARGET="nordic", NRFUTIL_BIN=str(self.tmp / "missing"))
+        self.assertEqual(proc.returncode, 3)
+        self.assertIn("BALAS_ENV_ERROR: nRF Util not found", proc.stderr)
+
+    def test_sdk_not_listed_prints_listing(self):
+        fake = self._fake_nrfutil("SDK Type  SDK Version  SDK Status\nnrf       v3.0.0       Installed")
+        proc = self._compile(BALAS_TARGET="nordic", NRFUTIL_BIN=str(fake), NORDIC_NCS_VERSION="v3.4.0")
+        self.assertEqual(proc.returncode, 3)
+        self.assertIn("nrf       v3.0.0       Installed", proc.stderr)  # diagnóstico
+        self.assertIn("--- HOME=", proc.stderr)
+        self.assertTrue(proc.stderr.rstrip().endswith(
+            f"BALAS_ENV_ERROR: nRF Connect SDK v3.4.0 not listed by '{fake} sdk-manager list'."))
+
+    def test_missing_ncs_workspace(self):
+        fake = self._fake_nrfutil("nrf       v3.4.0       Installed   Installed")
+        proc = self._compile(BALAS_TARGET="nordic", NRFUTIL_BIN=str(fake),
+                             NORDIC_NCS_DIR=str(self.tmp / "ncs"))
+        self.assertEqual(proc.returncode, 3)
+        self.assertIn("BALAS_ENV_ERROR: nRF Connect SDK workspace not found", proc.stderr)
+
+    def test_compile_cpp_project_reports_env_error(self):
+        from unittest import mock
+        from python_scripts.deployer import deployer
+
+        output = ("--- 'nrfutil sdk-manager list' output:\n\nInstall it with: nrfutil sdk-manager install v3.4.0\n"
+                  "BALAS_ENV_ERROR: nRF Connect SDK v3.4.0 not listed by 'nrfutil sdk-manager list'.\n")
+        with mock.patch.object(deployer, "_run_tee", return_value=(3, output)):
+            with self.assertRaises(RuntimeError) as ctx:
+                deployer.compile_cpp_project()
+        self.assertEqual(
+            str(ctx.exception),
+            "compile.sh: env_error (exit 3): nRF Connect SDK v3.4.0 not listed by 'nrfutil sdk-manager list'.",
+        )
 
 
 # ===========================================================================

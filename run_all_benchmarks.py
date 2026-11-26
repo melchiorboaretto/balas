@@ -19,6 +19,29 @@ from python_scripts.dse.sampling import sample_config
 _NON_CRITICAL_PREFIXES = ("build_failure:", "runtime_failure:")
 _SERIAL_FAILURE_PREFIX = "serial_failure:"
 RUNTIME_FAILURE_PREFIX = "runtime_failure:"
+COMPILE_ENV_ERROR = "compile.sh: env_error"
+# Última linha das checagens de ambiente do compile.sh antes de elas saírem com
+# BALAS_ENV_ERROR. Linhas antigas com esses textos foram gravadas como
+# "compile.sh: build_error" mas são falha da máquina: tratá-las como críticas faz
+# o loop refazer a iteração em vez de manter o modelo como "não compilou".
+_LEGACY_COMPILE_ENV_ERRORS = (
+    "sdk-manager install",
+    "Install nRF Util and its sdk-manager command",
+    "Set NORDIC_NCS_DIR to the installed SDK workspace",
+    "or set NORDIC_TFLM_MODULE_DIR",
+    "Set MCUXPRESSO_IDE_BIN in the environment",
+    "Set MCUX_WORKSPACE_DIR to the directory",
+    "Use BALAS_TARGET=nxp",
+)
+
+
+def is_compile_env_error(error_msg: str | None) -> bool:
+    """Falha do compile.sh causada pelo ambiente (ferramenta/SDK ausente), não pelo modelo."""
+    if not error_msg or "compile.sh" not in error_msg:
+        return False
+    return COMPILE_ENV_ERROR in error_msg or any(
+        legacy in error_msg for legacy in _LEGACY_COMPILE_ENV_ERRORS
+    )
 
 
 def discover_config_tomls(configs_dir: Path) -> list[Path]:
@@ -41,7 +64,11 @@ def is_critical_error(error_msg: str | None) -> bool:
     """
     Classifica se o erro registrado em uma execução é crítico.
     - Sem erro (""): não é crítico (False).
-    - Erro de compile.sh: aceitável (False), pois indica que a arena/modelo não coube na FLASH/RAM.
+    - Erro de compile.sh: aceitável (False), pois indica que a arena/modelo não coube na FLASH/RAM
+      ou que o modelo não compila.
+    - Exceto ``compile.sh: env_error`` (ferramenta/SDK ausente na máquina): crítico (True),
+      como as linhas antigas gravadas antes dessa classificação existir (ver
+      _LEGACY_COMPILE_ENV_ERRORS).
     - build_failure: (builder/conversão/estimativa) é determinístico: repetir não muda nada (False).
     - runtime_failure: falha na placa que se repetiu além do limite de tentativas (False).
     - Erro de deploy.sh, falha na serial ou qualquer outro erro: crítico (True).
@@ -49,7 +76,7 @@ def is_critical_error(error_msg: str | None) -> bool:
     if not error_msg or not error_msg.strip():
         return False
     if "compile.sh" in error_msg:
-        return False
+        return is_compile_env_error(error_msg)
     if error_msg.strip().startswith(_NON_CRITICAL_PREFIXES):
         return False
     return True
